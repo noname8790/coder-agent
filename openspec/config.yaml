@@ -1,0 +1,42 @@
+schema: spec-driven
+
+context: |
+  项目：代码智能体(coder-agent)
+  输出语言：中文
+  技术栈：Spring Boot 3.x + MyBatis-Plus + JDK 17/21 + MySQL + Elasticsearch + PostgreSQL/PGVctor + Redis + Docker + Spring AI Alibaba/ LangChain4j + OpenAI/阿里云百炼dashscope API + Tool Calling + SLF4J + ...
+  架构：DDD
+  业务模块：Agent Harness
+  Database：MySQL、PostgreSQL/PGVector、...
+
+rules:
+  proposal:
+    - 必须使用中文输出
+    - 必须包含回滚方案
+    - 标注影响的模块范围
+  specs:
+    - 使用中文描述测试场景
+    - 标注涉及的表和 API
+flowchart TD
+    A["opencode.json"] --> B["引用 AGENTS.md"]
+    B --> D["语言要求 / 技术栈 / 规范"]
+    A --> E["openspec/config.yaml"]
+    E --> F["schema: spec-driven"]
+    E --> G["rules: 中文 / 回滚 / 标注"]
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

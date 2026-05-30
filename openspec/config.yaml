@@ -16,7 +16,8 @@ rules:
   specs:
     - 使用中文描述测试场景
     - 标注涉及的表和 API
-flowchart TD
+workflow_notes: |
+  flowchart TD
     A["opencode.json"] --> B["引用 AGENTS.md"]
     B --> D["语言要求 / 技术栈 / 规范"]
     A --> E["openspec/config.yaml"]

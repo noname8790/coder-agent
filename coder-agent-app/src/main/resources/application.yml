@@ -1,0 +1,83 @@
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+
+spring:
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  application:
+    name: coder-agent
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:13306/coder-agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
+mybatis-plus:
+  mapper-locations: classpath*:mybatis/mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+coder-agent:
+  model:
+    default-model-key: ${CODER_AGENT_DEFAULT_MODEL_KEY:glm-5}
+    base-url: ${OPENAI_COMPATIBLE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${OPENAI_COMPATIBLE_API_KEY:}
+    model: ${OPENAI_COMPATIBLE_MODEL:glm-5}
+    endpoint-type: ${OPENAI_COMPATIBLE_ENDPOINT_TYPE:chat-completions}
+    temperature: ${OPENAI_COMPATIBLE_TEMPERATURE:0.2}
+    timeout-seconds: ${OPENAI_COMPATIBLE_TIMEOUT_SECONDS:180}
+    models:
+      "[qwen3.6-plus]":
+        provider: openai-compatible
+        base-url: ${QWEN_OPENAI_COMPATIBLE_BASE_URL:${OPENAI_COMPATIBLE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+        api-key: ${QWEN_OPENAI_COMPATIBLE_API_KEY:${OPENAI_COMPATIBLE_API_KEY:}}
+        model: ${QWEN_OPENAI_COMPATIBLE_MODEL:qwen3.6-plus}
+        endpoint-type: ${QWEN_OPENAI_COMPATIBLE_ENDPOINT_TYPE:chat-completions}
+        temperature: ${QWEN_OPENAI_COMPATIBLE_TEMPERATURE:0.2}
+        timeout-seconds: ${QWEN_OPENAI_COMPATIBLE_TIMEOUT_SECONDS:180}
+      "[glm-5]":
+        provider: openai-compatible
+        base-url: ${GLM_OPENAI_COMPATIBLE_BASE_URL:${OPENAI_COMPATIBLE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+        api-key: ${GLM_OPENAI_COMPATIBLE_API_KEY:${OPENAI_COMPATIBLE_API_KEY:}}
+        model: ${GLM_OPENAI_COMPATIBLE_MODEL:glm-5}
+        endpoint-type: ${GLM_OPENAI_COMPATIBLE_ENDPOINT_TYPE:chat-completions}
+        temperature: ${GLM_OPENAI_COMPATIBLE_TEMPERATURE:0.2}
+        timeout-seconds: ${GLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS:180}
+      "[deepseek-v4-flash]":
+        provider: openai-compatible
+        base-url: ${DEEPSEEK_OPENAI_COMPATIBLE_BASE_URL:${OPENAI_COMPATIBLE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+        api-key: ${DEEPSEEK_OPENAI_COMPATIBLE_API_KEY:${OPENAI_COMPATIBLE_API_KEY:}}
+        model: ${DEEPSEEK_OPENAI_COMPATIBLE_MODEL:deepseek-v4-flash}
+        endpoint-type: ${DEEPSEEK_OPENAI_COMPATIBLE_ENDPOINT_TYPE:chat-completions}
+        temperature: ${DEEPSEEK_OPENAI_COMPATIBLE_TEMPERATURE:0.2}
+        timeout-seconds: ${DEEPSEEK_OPENAI_COMPATIBLE_TIMEOUT_SECONDS:180}
+  budget:
+    max-steps: ${AGENT_MAX_STEPS:25}
+    max-model-calls: ${AGENT_MAX_MODEL_CALLS:25}
+    max-tool-calls: ${AGENT_MAX_TOOL_CALLS:50}
+    timeout-seconds: ${AGENT_TIMEOUT_SECONDS:300}
+    max-concurrent-runs: ${AGENT_MAX_CONCURRENT_RUNS:2}
+  workspaces:
+    coder-agent: ${CODER_AGENT_WORKSPACE_ROOT:${user.dir}}
+  tools:
+    max-list-entries: 200
+    max-read-bytes: 65536
+    max-search-results: 100
+    max-tool-inline-chars: 4000
+    shell-timeout-seconds: 120
+    allowed-command-prefixes:
+      - git status
+      - git diff
+      - git log
+      - mvn test
+      - mvn -q test
+      - mvn clean test
+      - mvn package
+      - mvn -pl
+      - java -version

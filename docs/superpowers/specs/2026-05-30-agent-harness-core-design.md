@@ -46,9 +46,9 @@ REST API：
 默认预算：
 
 ```yaml
-max_steps: 20
-max_model_calls: 8
-max_tool_calls: 16
+max_steps: 25
+max_model_calls: 25
+max_tool_calls: 50
 timeout_seconds: 300
 max_concurrent_runs: 2
 ```

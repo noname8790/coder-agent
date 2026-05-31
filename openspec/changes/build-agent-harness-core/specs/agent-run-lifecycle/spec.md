@@ -51,7 +51,7 @@
 
 ### Requirement: 执行预算限制
 
-系统 MUST 对每次运行应用默认预算：`max_steps=20`、`max_model_calls=8`、`max_tool_calls=16`、`timeout_seconds=300`，并限制首版最大并发运行数为 2。
+系统 MUST 对每次运行应用默认预算：`max_steps=25`、`max_model_calls=25`、`max_tool_calls=50`、`timeout_seconds=300`，并限制首版最大并发运行数为 2。
 
 涉及 API：`POST /api/agent-runs`、`GET /api/agent-runs/{runId}`  
 涉及表：`agent_run`、`agent_step`、`model_call`、`tool_call`

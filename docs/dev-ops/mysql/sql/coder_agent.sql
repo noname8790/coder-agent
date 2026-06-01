@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS agent_run (
     workspace_key VARCHAR(128) NOT NULL COMMENT '工作区标识',
     task TEXT NOT NULL COMMENT '用户任务',
     model VARCHAR(128) NULL COMMENT '模型配置标识',
+    mode VARCHAR(32) NOT NULL DEFAULT 'READ_ONLY' COMMENT '运行模式：READ_ONLY只读，EDIT编辑',
     status VARCHAR(32) NOT NULL COMMENT '运行状态',
     final_answer MEDIUMTEXT NULL COMMENT '最终回答',
     failure_reason TEXT NULL COMMENT '失败原因',
@@ -24,6 +25,18 @@ CREATE TABLE IF NOT EXISTS agent_run (
     INDEX idx_agent_run_status (status),
     INDEX idx_agent_run_workspace (workspace_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent运行记录';
+
+CREATE TABLE IF NOT EXISTS agent_workspace (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    workspace_key VARCHAR(128) NOT NULL UNIQUE COMMENT '工作区标识',
+    root_path VARCHAR(1024) NOT NULL COMMENT '本地项目根目录',
+    capabilities JSON NOT NULL COMMENT '工作区能力列表',
+    status VARCHAR(32) NOT NULL COMMENT '工作区状态',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
+    updated_at DATETIME NOT NULL COMMENT '更新时间',
+    deleted_at DATETIME NULL COMMENT '停用时间',
+    INDEX idx_agent_workspace_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent工作区记录';
 
 CREATE TABLE IF NOT EXISTS agent_step (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -87,3 +100,6 @@ CREATE TABLE IF NOT EXISTS run_artifact (
     INDEX idx_run_artifact_run (run_id),
     INDEX idx_run_artifact_type (artifact_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运行工件记录';
+
+-- 从首版数据库升级到第二版时，如果 agent_run 已存在但缺少 mode 字段，请执行：
+-- ALTER TABLE agent_run ADD COLUMN mode VARCHAR(32) NOT NULL DEFAULT 'READ_ONLY' COMMENT '运行模式：READ_ONLY只读，EDIT编辑' AFTER model;

@@ -52,6 +52,7 @@ public class AgentRunRepository implements IAgentRunRepository {
         po.setWorkspaceKey(run.getWorkspaceKey());
         po.setTask(run.getTask());
         po.setModel(run.getModel());
+        po.setMode(run.getMode() == null ? "READ_ONLY" : run.getMode().name());
         po.setStatus(run.getStatus() == null ? null : run.getStatus().name());
         po.setFinalAnswer(run.getFinalAnswer());
         po.setFailureReason(run.getFailureReason());
@@ -76,6 +77,7 @@ public class AgentRunRepository implements IAgentRunRepository {
                 .workspaceKey(po.getWorkspaceKey())
                 .task(po.getTask())
                 .model(po.getModel())
+                .mode(cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode.valueOf(po.getMode() == null ? "READ_ONLY" : po.getMode()))
                 .status(AgentRunStatus.valueOf(po.getStatus()))
                 .finalAnswer(po.getFinalAnswer())
                 .failureReason(po.getFailureReason())

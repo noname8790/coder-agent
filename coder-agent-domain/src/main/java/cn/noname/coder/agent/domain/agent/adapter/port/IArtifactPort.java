@@ -2,6 +2,8 @@ package cn.noname.coder.agent.domain.agent.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
+import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 
 import java.util.List;
@@ -21,6 +23,13 @@ public interface IArtifactPort {
     RunArtifact writeToolOutput(WorkspaceDescriptor workspace, String runId, int callNo, String output);
 
     RunArtifact writeFinalResult(WorkspaceDescriptor workspace, AgentRun run, Map<String, Object> result);
+
+    default List<RunArtifact> writeReviewArtifacts(WorkspaceDescriptor workspace,
+                                                   AgentRun run,
+                                                   List<ChangedFile> changedFiles,
+                                                   List<TestCommandReport> testReports) {
+        return List.of();
+    }
 
     List<Map<String, Object>> readTrace(WorkspaceDescriptor workspace, String runId);
 }

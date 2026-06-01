@@ -7,6 +7,7 @@ import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.service.AgentRunDomainService;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CancelAgentRunCaseImpl implements ICancelAgentRunCase {
 
     private final IAgentRunRepository runRepository;
@@ -21,11 +23,15 @@ public class CancelAgentRunCaseImpl implements ICancelAgentRunCase {
 
     @Override
     public CancelAgentRunResponseDTO cancel(String runId) {
+        log.info("收到取消 Agent 运行请求 runId={}", runId);
         AgentRun run = runRepository.findByRunId(runId)
                 .orElseThrow(() -> new AppException("RUN_NOT_FOUND", "运行不存在：" + runId));
         if (!run.getStatus().isTerminal()) {
             domainService.cancel(run);
             runRepository.update(run);
+            log.info("Agent 运行已标记取消 runId={}", runId);
+        } else {
+            log.info("Agent 运行已是终态，忽略取消 runId={} status={}", runId, run.getStatus());
         }
         return new CancelAgentRunResponseDTO(run.getRunId(), run.getStatus().name());
     }

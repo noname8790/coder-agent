@@ -127,6 +127,29 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldKeepCancelledGivenCancellationHappensDuringModelCall() {
+        // Given 模型调用期间外部取消了运行
+        InMemoryRunRepository runRepository = new InMemoryRunRepository();
+        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
+        AgentRun run = newRun("run_cancel_during_model", 20, 8, 16, 300);
+        runRepository.save(run);
+        AgentRunExecutor executor = executor(runRepository, recordRepository,
+                request -> {
+                    runRepository.cancel(request.runId());
+                    return new ModelResponse("resp_1", "不应覆盖为成功", List.of(), "final");
+                },
+                new NoopToolGateway(), new StubArtifactPort(), false);
+
+        // When 执行 Agent 循环
+        executor.execute(run.getRunId());
+
+        // Then 最终状态保持取消，不会被模型最终回答覆盖成成功
+        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
+        assertEquals(AgentRunStatus.CANCELLED, saved.getStatus());
+        assertNull(saved.getFinalAnswer());
+    }
+
+    @Test
     void shouldFailGivenModelGatewayThrowsException() {
         // Given 模型网关异常
         InMemoryRunRepository runRepository = new InMemoryRunRepository();
@@ -244,6 +267,13 @@ class AgentRunExecutorTest {
                 run.setStatus(AgentRunStatus.CANCELLED);
             }
             return Optional.ofNullable(run).map(this::cloneRun);
+        }
+
+        void cancel(String runId) {
+            AgentRun run = runs.get(runId);
+            if (run != null) {
+                run.setStatus(AgentRunStatus.CANCELLED);
+            }
         }
 
         @Override

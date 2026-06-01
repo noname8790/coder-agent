@@ -1,5 +1,6 @@
 package cn.noname.coder.agent.domain.agent.adapter.port;
 
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
@@ -14,5 +15,13 @@ public interface IToolGateway {
 
     List<ToolDefinition> definitions();
 
+    default List<ToolDefinition> definitions(AgentRun run, WorkspaceDescriptor workspace) {
+        return definitions();
+    }
+
     ToolResult execute(String runId, WorkspaceDescriptor workspace, ToolInvocation invocation);
+
+    default ToolResult execute(AgentRun run, WorkspaceDescriptor workspace, ToolInvocation invocation) {
+        return execute(run.getRunId(), workspace, invocation);
+    }
 }

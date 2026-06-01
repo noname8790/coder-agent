@@ -12,6 +12,7 @@ import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.AuditEvent;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.AuditEventType;
@@ -84,6 +85,8 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         AgentRun run = buildRun(request, modelConfig.modelKey());
         log.info("创建 Agent 运行 runId={} workspaceKey={} model={} actualModel={}",
                 run.getRunId(), run.getWorkspaceKey(), modelConfig.modelKey(), modelConfig.actualModel());
+        log.info("Agent 运行模式 runId={} mode={} workspaceCapabilities={}",
+                run.getRunId(), run.getMode(), workspace.capabilities());
         runRepository.save(run);
         artifactPort.initializeRun(workspace, run).forEach(recordRepository::saveArtifact);
         taskExecutor.execute(() -> agentRunExecutor.execute(run.getRunId()));
@@ -104,11 +107,13 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
 
     private AgentRun buildRun(CreateAgentRunRequestDTO request, String modelKey) {
         AgentRuntimeProperties.Budget budget = properties.getBudget();
+        AgentRunMode mode = parseMode(request.mode());
         return AgentRun.builder()
                 .runId("run_" + UUID.randomUUID().toString().replace("-", ""))
                 .workspaceKey(request.workspaceKey())
                 .task(request.task())
                 .model(modelKey)
+                .mode(mode)
                 .status(AgentRunStatus.CREATED)
                 .maxSteps(budget.getMaxSteps())
                 .maxModelCalls(budget.getMaxModelCalls())
@@ -119,5 +124,16 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                 .toolCallCount(0)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    private AgentRunMode parseMode(String value) {
+        if (!StringUtils.hasText(value)) {
+            return AgentRunMode.READ_ONLY;
+        }
+        try {
+            return AgentRunMode.valueOf(value);
+        } catch (Exception e) {
+            throw new AppException("INVALID_RUN_MODE", "未知运行模式：" + value);
+        }
     }
 }

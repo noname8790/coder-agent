@@ -8,5 +8,9 @@ public enum ArtifactType {
     TRACE,
     CONTEXT_SNAPSHOT,
     TOOL_OUTPUT,
-    FINAL_RESULT
+    FINAL_RESULT,
+    PATCH_DIFF,
+    CHANGED_FILES,
+    TEST_REPORT,
+    REVIEW_SUMMARY
 }

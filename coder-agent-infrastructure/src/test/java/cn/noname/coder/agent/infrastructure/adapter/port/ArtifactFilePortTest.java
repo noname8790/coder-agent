@@ -1,6 +1,9 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode;
+import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import org.junit.jupiter.api.Test;
@@ -9,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -59,5 +63,33 @@ class ArtifactFilePortTest {
 
         // Then 文件存在
         assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_final/final-result.json")));
+    }
+
+    @Test
+    void shouldWriteReviewArtifactsGivenChangedFilesAndTestReports() throws Exception {
+        // Given 一次 EDIT 运行产生文件变更和测试报告
+        ArtifactFilePort port = new ArtifactFilePort();
+        WorkspaceDescriptor workspace = new WorkspaceDescriptor("repo", workspaceRoot);
+        AgentRun run = AgentRun.builder()
+                .runId("run_edit")
+                .workspaceKey("repo")
+                .task("修改代码")
+                .model("test-model")
+                .mode(AgentRunMode.EDIT)
+                .status(AgentRunStatus.SUCCEEDED)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        // When 写入审查工件
+        var artifacts = port.writeReviewArtifacts(workspace, run,
+                List.of(new ChangedFile("src/App.java", "MODIFY", "old", "new", 1, "old", "new")),
+                List.of(new TestCommandReport("mvn test", 0, 100L, "PASSED", "ok")));
+
+        // Then diff、变更清单、测试报告和审查摘要都存在
+        assertEquals(4, artifacts.size());
+        assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/patch.diff")));
+        assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/changed-files.json")));
+        assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/test-report.json")));
+        assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/review-summary.md")));
     }
 }

@@ -2,6 +2,7 @@ package cn.noname.coder.agent.infrastructure.tools;
 
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.CallStatus;
@@ -47,6 +48,7 @@ public class RunShellTool implements LocalTool {
             return rejected("命令不在白名单中：" + command, "COMMAND_NOT_ALLOWED");
         }
         try {
+            long start = System.currentTimeMillis();
             Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-Command", command)
                     .directory(workspace.rootPath().toFile())
                     .redirectErrorStream(true)
@@ -57,10 +59,24 @@ public class RunShellTool implements LocalTool {
                 return new ToolResult(CallStatus.FAILED, "命令超时：" + command, "", 124, "TIMEOUT");
             }
             String output = readProcess(process);
-            return new ToolResult(CallStatus.SUCCESS, output, output, process.exitValue(), null);
+            long latencyMs = System.currentTimeMillis() - start;
+            TestCommandReport report = testReport(command, process.exitValue(), latencyMs, output);
+            return new ToolResult(CallStatus.SUCCESS, output, output, process.exitValue(), null, java.util.List.of(), report);
         } catch (Exception e) {
             return new ToolResult(CallStatus.FAILED, "命令执行失败：" + e.getMessage(), "", 1, e.getMessage());
         }
+    }
+
+    private TestCommandReport testReport(String command, int exitCode, long latencyMs, String output) {
+        String lower = command.toLowerCase();
+        boolean testOrBuild = lower.contains(" test") || lower.endsWith("test")
+                || lower.contains(" package") || lower.endsWith("package");
+        if (!testOrBuild) {
+            return null;
+        }
+        String status = exitCode == 0 ? "PASSED" : "FAILED";
+        String summary = output == null ? "" : output.lines().limit(80).reduce("", (a, b) -> a + b + System.lineSeparator());
+        return new TestCommandReport(command, exitCode, latencyMs, status, summary);
     }
 
     private ToolResult rejected(String summary, String code) {

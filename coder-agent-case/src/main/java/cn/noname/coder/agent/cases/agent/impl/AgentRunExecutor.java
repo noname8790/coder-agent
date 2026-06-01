@@ -17,6 +17,8 @@ import cn.noname.coder.agent.domain.agent.model.entity.ToolCall;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelResponse;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
@@ -65,6 +67,7 @@ public class AgentRunExecutor {
             failWithoutWorkspace(run, "workspaceKey 未配置：" + run.getWorkspaceKey());
             return;
         }
+        RunEditState editState = new RunEditState();
 
         try {
             log.info("Agent 开始运行 runId={} workspaceKey={} model={} workspaceRoot={}",
@@ -77,7 +80,7 @@ public class AgentRunExecutor {
             List<String> messages = new ArrayList<>(contextAssembler.initialMessages(run, workspace));
             LocalDateTime deadline = run.getStartedAt().plusSeconds(run.getTimeoutSeconds());
             while (!run.getStatus().isTerminal()) {
-                if (!checkBudget(run, deadline, workspace)) {
+                if (!checkBudget(run, deadline, workspace, editState)) {
                     break;
                 }
 
@@ -87,13 +90,18 @@ public class AgentRunExecutor {
                 writeSnapshot(workspace, run, messages);
 
                 ModelResponse response = callModel(run, messages, workspace);
+                if (stopIfCancelled(run, workspace, editState, "after_model_call")) {
+                    return;
+                }
                 if (response.hasToolCalls()) {
-                    executeTools(run, workspace, messages, response.toolInvocations());
+                    if (!executeTools(run, workspace, messages, response.toolInvocations(), editState)) {
+                        return;
+                    }
                 } else {
                     String finalAnswer = response.finalAnswer() == null ? "模型未返回内容" : response.finalAnswer();
                     domainService.succeed(run, finalAnswer);
                     runRepository.update(run);
-                    writeFinal(workspace, run);
+                    writeFinal(workspace, run, editState);
                     trace(workspace, runId, "run_succeeded", Map.of("finalAnswer", abbreviate(finalAnswer, 500)));
                     log.info("Agent 运行成功 runId={} modelCalls={} toolCalls={} durationMs={}",
                             runId, run.getModelCallCount(), run.getToolCallCount(), run.getDurationMs());
@@ -105,13 +113,13 @@ public class AgentRunExecutor {
             log.error("Agent 运行失败 runId={}", runId, e);
             domainService.fail(run, abbreviate(e.getMessage(), 1000));
             runRepository.update(run);
-            writeFinal(workspace, run);
+            writeFinal(workspace, run, editState);
             recordAudit(runId, AuditEventType.MODEL_CALL_FAILED, "Agent 执行异常", e.getMessage());
             trace(workspace, runId, "run_failed", Map.of("reason", abbreviate(e.getMessage(), 1000)));
         }
     }
 
-    private boolean checkBudget(AgentRun run, LocalDateTime deadline, WorkspaceDescriptor workspace) {
+    private boolean checkBudget(AgentRun run, LocalDateTime deadline, WorkspaceDescriptor workspace, RunEditState editState) {
         String reason = null;
         if (LocalDateTime.now().isAfter(deadline)) {
             reason = "运行超时：" + run.getTimeoutSeconds() + " 秒";
@@ -126,7 +134,7 @@ public class AgentRunExecutor {
             if (current.getStatus() == AgentRunStatus.CANCELLED) {
                 run.setStatus(AgentRunStatus.CANCELLED);
                 runRepository.update(run);
-                writeFinal(workspace, run);
+                writeFinal(workspace, run, editState);
                 trace(workspace, run.getRunId(), "run_cancelled", Map.of("reason", "用户取消"));
                 return false;
             }
@@ -137,10 +145,30 @@ public class AgentRunExecutor {
         log.warn("Agent 运行预算耗尽 runId={} reason={}", run.getRunId(), reason);
         domainService.fail(run, reason);
         runRepository.update(run);
-        writeFinal(workspace, run);
+        writeFinal(workspace, run, editState);
         recordAudit(run.getRunId(), AuditEventType.BUDGET_EXHAUSTED, "预算耗尽", reason);
         trace(workspace, run.getRunId(), "budget_exhausted", Map.of("reason", reason));
         return false;
+    }
+
+    private boolean stopIfCancelled(AgentRun run, WorkspaceDescriptor workspace, RunEditState editState, String checkpoint) {
+        AgentRun current = runRepository.findByRunId(run.getRunId()).orElse(run);
+        if (current.getStatus() != AgentRunStatus.CANCELLED) {
+            return false;
+        }
+        run.setStatus(AgentRunStatus.CANCELLED);
+        run.setFinalAnswer(null);
+        run.setFailureReason(current.getFailureReason());
+        run.setEndedAt(current.getEndedAt());
+        run.setDurationMs(current.getDurationMs());
+        if (run.getEndedAt() == null) {
+            domainService.cancel(run);
+        }
+        runRepository.update(run);
+        writeFinal(workspace, run, editState);
+        trace(workspace, run.getRunId(), "run_cancelled", Map.of("reason", "用户取消", "checkpoint", checkpoint));
+        log.info("Agent 运行已取消 runId={} checkpoint={}", run.getRunId(), checkpoint);
+        return true;
     }
 
     private ModelResponse callModel(AgentRun run, List<String> messages, WorkspaceDescriptor workspace) {
@@ -149,7 +177,7 @@ public class AgentRunExecutor {
         try {
             log.info("调用 {} 模型 runId={} callNo={} provider={}",
                     auditModel.auditName(), run.getRunId(), run.getModelCallCount(), auditModel.provider());
-            ModelResponse response = modelGateway.call(new ModelRequest(run.getRunId(), run.getModel(), messages, toolGateway.definitions()));
+            ModelResponse response = modelGateway.call(new ModelRequest(run.getRunId(), run.getModel(), messages, toolGateway.definitions(run, workspace)));
             long latencyMs = System.currentTimeMillis() - start;
             recordRepository.saveModelCall(ModelCall.builder()
                     .runId(run.getRunId())
@@ -186,15 +214,18 @@ public class AgentRunExecutor {
         }
     }
 
-    private void executeTools(AgentRun run, WorkspaceDescriptor workspace, List<String> messages, List<ToolInvocation> invocations) {
+    private boolean executeTools(AgentRun run, WorkspaceDescriptor workspace, List<String> messages, List<ToolInvocation> invocations, RunEditState editState) {
         for (ToolInvocation invocation : invocations) {
+            if (stopIfCancelled(run, workspace, editState, "before_tool_call")) {
+                return false;
+            }
             if (run.getToolCallCount() >= run.getMaxToolCalls()) {
                 break;
             }
             long start = System.currentTimeMillis();
             run.setToolCallCount(run.getToolCallCount() + 1);
             log.info("执行工具 runId={} callNo={} tool={}", run.getRunId(), run.getToolCallCount(), invocation.name());
-            ToolResult result = toolGateway.execute(run.getRunId(), workspace, invocation);
+            ToolResult result = toolGateway.execute(run, workspace, invocation);
             long latencyMs = System.currentTimeMillis() - start;
             RunArtifact outputArtifact = null;
             if (result.fullOutput() != null && result.fullOutput().length() > properties.getTools().getMaxToolInlineChars()) {
@@ -219,13 +250,18 @@ public class AgentRunExecutor {
             if (result.status() == CallStatus.REJECTED) {
                 recordAudit(run.getRunId(), auditType(result.errorMessage()), "工具调用被拒绝", summary);
             }
+            collectEditState(run.getToolCallCount(), result, editState);
             messages.add("工具结果 " + invocation.name() + "：" + abbreviate(summary, 2000));
             trace(workspace, run.getRunId(), "tool_call", Map.of(
                     "tool", invocation.name(),
                     "status", result.status().name(),
                     "summary", abbreviate(summary, 500)
             ));
+            if (stopIfCancelled(run, workspace, editState, "after_tool_call")) {
+                return false;
+            }
         }
+        return true;
     }
 
     private void writeSnapshot(WorkspaceDescriptor workspace, AgentRun run, List<String> messages) {
@@ -237,11 +273,30 @@ public class AgentRunExecutor {
         recordRepository.saveArtifact(artifactPort.writeContextSnapshot(workspace, run.getRunId(), run.getModelCallCount(), snapshot));
     }
 
-    private void writeFinal(WorkspaceDescriptor workspace, AgentRun run) {
+    private void collectEditState(int toolCallNo, ToolResult result, RunEditState editState) {
+        if (result.changedFiles() != null && !result.changedFiles().isEmpty()) {
+            for (ChangedFile file : result.changedFiles()) {
+                editState.changedFiles.add(new ChangedFile(file.relativePath(), file.changeType(), file.beforeHash(),
+                        file.afterHash(), toolCallNo, file.beforeContent(), file.afterContent()));
+            }
+        }
+        if (result.testReport() != null) {
+            editState.testReports.add(result.testReport());
+        }
+    }
+
+    private void writeFinal(WorkspaceDescriptor workspace, AgentRun run, RunEditState editState) {
+        artifactPort.writeReviewArtifacts(workspace, run, editState.changedFiles, editState.testReports)
+                .forEach(recordRepository::saveArtifact);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("runId", run.getRunId());
         result.put("status", run.getStatus().name());
         result.put("model", run.getModel());
+        result.put("editMode", run.getMode() == null ? "READ_ONLY" : run.getMode().name());
+        result.put("changed", !editState.changedFiles.isEmpty());
+        result.put("changedFileCount", editState.changedFiles.size());
+        result.put("testStatus", testStatus(editState));
+        result.put("reviewArtifacts", reviewArtifactPaths(run, editState));
         modelConfigPort.resolve(run.getModel()).ifPresent(model -> {
             result.put("model_provider", model.provider());
             result.put("actual_model", model.actualModel());
@@ -254,6 +309,29 @@ public class AgentRunExecutor {
         result.put("tool_calls", run.getToolCallCount());
         result.put("duration", run.getDurationMs());
         recordRepository.saveArtifact(artifactPort.writeFinalResult(workspace, run, result));
+    }
+
+    private String testStatus(RunEditState editState) {
+        if (editState.testReports.isEmpty()) {
+            return "NOT_RUN";
+        }
+        boolean failed = editState.testReports.stream().anyMatch(report -> !"PASSED".equals(report.status()));
+        return failed ? "FAILED" : "PASSED";
+    }
+
+    private List<String> reviewArtifactPaths(AgentRun run, RunEditState editState) {
+        List<String> paths = new ArrayList<>();
+        if (!editState.changedFiles.isEmpty()) {
+            paths.add(".coder/runs/" + run.getRunId() + "/patch.diff");
+            paths.add(".coder/runs/" + run.getRunId() + "/changed-files.json");
+        }
+        if (!editState.testReports.isEmpty()) {
+            paths.add(".coder/runs/" + run.getRunId() + "/test-report.json");
+        }
+        if (!editState.changedFiles.isEmpty() || !editState.testReports.isEmpty()) {
+            paths.add(".coder/runs/" + run.getRunId() + "/review-summary.md");
+        }
+        return paths;
     }
 
     private ModelBackendConfig auditModel(String modelKey) {
@@ -294,6 +372,12 @@ public class AgentRunExecutor {
         if ("COMMAND_NOT_ALLOWED".equals(code)) {
             return AuditEventType.COMMAND_NOT_ALLOWED;
         }
+        if ("CAPABILITY_REJECTED".equals(code) || "READ_ONLY_EDIT_REJECTED".equals(code)) {
+            return AuditEventType.CAPABILITY_REJECTED;
+        }
+        if ("PROTECTED_PATH".equals(code)) {
+            return AuditEventType.PROTECTED_PATH_REJECTED;
+        }
         return AuditEventType.TOOL_REJECTED;
     }
 
@@ -316,5 +400,10 @@ public class AgentRunExecutor {
             return text;
         }
         return text.substring(0, max) + "...";
+    }
+
+    private static class RunEditState {
+        private final List<ChangedFile> changedFiles = new ArrayList<>();
+        private final List<TestCommandReport> testReports = new ArrayList<>();
     }
 }

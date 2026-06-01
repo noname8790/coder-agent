@@ -19,6 +19,7 @@ public class AgentRunPO {
     private String workspaceKey;
     private String task;
     private String model;
+    private String mode;
     private String status;
     private String finalAnswer;
     private String failureReason;

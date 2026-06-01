@@ -79,5 +79,6 @@ coder-agent:
       - mvn -q test
       - mvn clean test
       - mvn package
+      - mvn clean package
       - mvn -pl
       - java -version

@@ -18,6 +18,7 @@ public class AgentRuntimeProperties {
     private Model model = new Model();
     private Budget budget = new Budget();
     private Map<String, String> workspaces = new LinkedHashMap<>();
+    private WorkspaceDefaults workspaceDefaults = new WorkspaceDefaults();
     private Tools tools = new Tools();
 
     @Data
@@ -53,6 +54,11 @@ public class AgentRuntimeProperties {
     }
 
     @Data
+    public static class WorkspaceDefaults {
+        private List<String> capabilities = new ArrayList<>(List.of("READ_REPOSITORY", "GIT_READ", "RUN_TEST"));
+    }
+
+    @Data
     public static class Tools {
         private int maxListEntries = 200;
         private int maxReadBytes = 65536;
@@ -67,6 +73,7 @@ public class AgentRuntimeProperties {
                 "mvn -q test",
                 "mvn clean test",
                 "mvn package",
+                "mvn clean package",
                 "mvn -pl",
                 "java -version"
         ));

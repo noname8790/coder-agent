@@ -2,7 +2,7 @@
 
 `coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 接收任务，在服务端配置的本地 `workspaceKey` 内执行受限工具，调用 OpenAI-compatible 模型接口，并把运行记录写入 MySQL，把可回放工件写入 `{workspaceRoot}/.coder/runs/{runId}/`。
 
-首版定位是开发可用闭环：读仓库、搜索、执行受限诊断命令、生成结论。首版不开放文件编辑、Git commit/push、分支创建或 PR 生成。
+当前第二版定位是安全编辑闭环：读仓库、搜索、执行受限诊断命令、按 `READ_ONLY/EDIT` 模式受控新增或修改文件、运行测试/构建、生成 diff 和审查工件。第二版仍不开放文件删除、Git commit/push/reset、分支创建或 PR 生成。
 
 ## 模块
 
@@ -22,9 +22,16 @@
 docs/dev-ops/mysql/sql/coder_agent.sql
 ```
 
+如果是从首版数据库升级，`CREATE TABLE IF NOT EXISTS` 不会修改既有 `agent_run` 表，需要手动执行迁移：
+
+```sql
+ALTER TABLE agent_run ADD COLUMN mode VARCHAR(32) NOT NULL DEFAULT 'READ_ONLY' COMMENT '运行模式：READ_ONLY只读，EDIT编辑' AFTER model;
+```
+
 涉及表：
 
 - `agent_run`
+- `agent_workspace`
 - `agent_step`
 - `model_call`
 - `tool_call`
@@ -89,12 +96,41 @@ java -jar coder-agent-app\target\coder-agent.jar
 
 ## API 示例
 
+注册 workspace：
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/workspaces `
+  -H "Content-Type: application/json" `
+  -d "{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/Projects/demo\",\"capabilities\":[\"READ_REPOSITORY\",\"GIT_READ\",\"RUN_TEST\",\"ADD_FILE\",\"MODIFY_FILE\"]}"
+```
+
+查询 workspace：
+
+```powershell
+curl http://127.0.0.1:8080/api/workspaces
+curl http://127.0.0.1:8080/api/workspaces/demo
+```
+
+停用 workspace：
+
+```powershell
+curl -X DELETE http://127.0.0.1:8080/api/workspaces/demo
+```
+
 创建运行，使用默认模型：
 
 ```powershell
 curl -X POST http://127.0.0.1:8080/api/agent-runs `
   -H "Content-Type: application/json" `
   -d "{\"workspaceKey\":\"coder-agent\",\"task\":\"请阅读仓库结构并说明这个项目的模块职责\"}"
+```
+
+创建编辑运行，必须显式传 `mode=EDIT`，并且 workspace capabilities 必须包含 `ADD_FILE` 或 `MODIFY_FILE`：
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/agent-runs `
+  -H "Content-Type: application/json" `
+  -d "{\"workspaceKey\":\"demo\",\"model\":\"glm-5\",\"mode\":\"EDIT\",\"task\":\"请新增一个 docs/agent-note.md 并运行 mvn test\"}"
 ```
 
 创建运行，指定模型 key：
@@ -125,12 +161,23 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
 
 ## 工具白名单
 
-首版工具：
+工具：
 
 - `list_files`
 - `read_file`
 - `search_text`
 - `run_shell`
+- `apply_patch`：仅 `EDIT` 且具备 `MODIFY_FILE` 时可见，只能修改已有文本文件。
+- `write_file`：仅 `EDIT` 且具备 `ADD_FILE` 时可见，只能新建文本文件，不覆盖已有文件。
+
+workspace capability 与工具/命令映射：
+
+- `READ_REPOSITORY`：`list_files`、`read_file`、`search_text`
+- `GIT_READ`：`git status`、`git diff`、`git log`
+- `RUN_TEST`：测试命令，如 `mvn test`、`mvn -q test`、`mvn clean test`
+- `RUN_BUILD`：构建命令，如 `mvn package`、`mvn clean package`
+- `ADD_FILE`：`write_file`
+- `MODIFY_FILE`：`apply_patch`
 
 默认允许命令前缀：
 
@@ -141,10 +188,19 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
 - `mvn -q test`
 - `mvn clean test`
 - `mvn package`
+- `mvn clean package`
 - `mvn -pl`
 - `java -version`
 
-包含 `&&`、`|`、重定向、删除、移动、`git reset`、`git push`、`git commit` 等高风险 token 的命令会被拒绝。
+包含 `&&`、`|`、重定向、删除、移动、`git reset`、`git push`、`git commit` 等高风险 token 的命令会被拒绝。即使处于 `EDIT` 模式，`git commit`、`git push`、`git reset`、`git branch` 仍会被拒绝。
+
+编辑受保护路径：
+
+- `.env`、`.env.*`
+- `.git/`
+- `.coder/`
+- `target/`
+- 文件名包含 `secret`、`token`、`password`、`credential` 或常见私钥文件名
 
 ## 工件
 
@@ -158,6 +214,17 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
 {workspaceRoot}/.coder/runs/{runId}/final-result.json
 ```
 
+发生编辑或测试/构建后还会写入：
+
+```text
+{workspaceRoot}/.coder/runs/{runId}/patch.diff
+{workspaceRoot}/.coder/runs/{runId}/changed-files.json
+{workspaceRoot}/.coder/runs/{runId}/test-report.json
+{workspaceRoot}/.coder/runs/{runId}/review-summary.md
+```
+
+`final-result.json` 会包含 `editMode`、`changed`、`changedFileCount`、`testStatus` 和新增审查工件路径。
+
 ## 真实 API 冒烟验证
 
 补齐 MySQL、OpenAI-compatible 和 workspace 配置后，可以创建一个本地仓库分析任务。验收点：
@@ -170,6 +237,7 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
 ## 回滚方案
 
 - 停止 `coder-agent-app` 服务。
-- 删除多模型配置，只保留旧单模型 `coder-agent.model` 配置。
-- 停止向 `POST /api/agent-runs` 传入 `model` 字段。
+- 停止使用 `/api/workspaces` 和 `mode=EDIT`，创建任务只传 `READ_ONLY` 或不传 `mode`。
+- 从工具注册中移除 `apply_patch`、`write_file`，仅保留只读工具。
+- 保留 `agent_workspace` 表和 `agent_run.mode` 字段但不再写入；必要时通过 SQL 删除新增表/列。
 - 如需清理测试数据，删除 MySQL 中对应 `run_id` 的运行记录，并删除 workspace 下 `.coder/runs/{runId}/` 工件目录。

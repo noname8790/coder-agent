@@ -35,3 +35,23 @@ Spring Boot 3.x + MyBatis-Plus + JDK 17/21 + MySQL + Elasticsearch + PostgreSQL/
 
 ### 验证阶段
 - 5 项检查：结构验证、任务完成、Delta Spec 同步、设计/规格一致性、实现信号
+
+
+## Pencil 协同规则
+
+### 集成阶段
+- **specs 阶段**：定义功能需求，含前后端 Requirement 分类。
+- **design 阶段**：在 `§ Frontend Architecture` 和 `§ UI Design Tokens` 中确定前端架构、页面结构。
+- **design-ui 阶段**：从 `design.md` 提取前端信息，生成 .pen 设计稿。
+- **tasks 阶段**：前端任务引用 .pen 设计稿。
+
+### 设计文件位置
+`openspec/changes/<change-name>/design-ui/`
+
+### Pencil MCP 工具
+- 使用当前可用的 Pencil MCP 工具生成、检查和导出 UI 设计稿。
+- 设计稿中的页面、组件状态和关键交互应与 `design.md` 保持一致。
+
+### 前端实现阶段
+- 必须在后端完成交付且经用户提交后端代码后开始。
+- 参考设计稿进行代码实现

@@ -17,7 +17,6 @@ public class WorkspacePO {
     private Long id;
     private String workspaceKey;
     private String rootPath;
-    private String capabilities;
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

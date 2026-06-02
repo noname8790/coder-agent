@@ -12,7 +12,6 @@ public class WorkspaceAssembler {
         return new WorkspaceResponseDTO(
                 workspace.getWorkspaceKey(),
                 workspace.getRootPath().toString(),
-                workspace.getCapabilities().stream().map(Enum::name).toList(),
                 workspace.getStatus().name(),
                 workspace.getCreatedAt(),
                 workspace.getUpdatedAt(),

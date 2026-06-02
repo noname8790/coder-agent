@@ -17,12 +17,15 @@ public class AgentRunPO {
     private Long id;
     private String runId;
     private String workspaceKey;
+    private String conversationId;
     private String task;
     private String model;
-    private String mode;
+    private String permissionLevel;
     private String status;
     private String finalAnswer;
     private String failureReason;
+    private String gitBranch;
+    private String commitHash;
     private Integer maxSteps;
     private Integer maxModelCalls;
     private Integer maxToolCalls;

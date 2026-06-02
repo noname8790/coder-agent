@@ -18,7 +18,6 @@ public class AgentRuntimeProperties {
     private Model model = new Model();
     private Budget budget = new Budget();
     private Map<String, String> workspaces = new LinkedHashMap<>();
-    private WorkspaceDefaults workspaceDefaults = new WorkspaceDefaults();
     private Tools tools = new Tools();
 
     @Data
@@ -54,11 +53,6 @@ public class AgentRuntimeProperties {
     }
 
     @Data
-    public static class WorkspaceDefaults {
-        private List<String> capabilities = new ArrayList<>(List.of("READ_REPOSITORY", "GIT_READ", "RUN_TEST"));
-    }
-
-    @Data
     public static class Tools {
         private int maxListEntries = 200;
         private int maxReadBytes = 65536;
@@ -69,6 +63,9 @@ public class AgentRuntimeProperties {
                 "git status",
                 "git diff",
                 "git log",
+                "git checkout -b",
+                "git add",
+                "git commit",
                 "mvn test",
                 "mvn -q test",
                 "mvn clean test",
@@ -79,7 +76,7 @@ public class AgentRuntimeProperties {
         ));
         private List<String> dangerousTokens = new ArrayList<>(List.of(
                 "&&", "||", "|", ">", "<", ";", "`", "$(", " rm ", " del ", " rmdir ",
-                "Remove-Item", "Move-Item", "git reset", "git push", "git commit"
+                "Remove-Item", "Move-Item", "git reset", "git push", "git clean"
         ));
     }
 }

@@ -51,7 +51,7 @@ class WorkspaceControllerTest {
         // When 调用注册接口
         mockMvc.perform(post("/api/workspaces")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/demo\",\"capabilities\":[\"READ_REPOSITORY\"]}"))
+                        .content("{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/demo\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.workspaceKey").value("demo"));
 
@@ -102,7 +102,7 @@ class WorkspaceControllerTest {
     }
 
     private WorkspaceResponseDTO workspace(String key, String status) {
-        return new WorkspaceResponseDTO(key, "E:\\demo", List.of("READ_REPOSITORY"), status,
+        return new WorkspaceResponseDTO(key, "E:\\demo", status,
                 LocalDateTime.now(), LocalDateTime.now(), null);
     }
 }

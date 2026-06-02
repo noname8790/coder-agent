@@ -2,11 +2,13 @@ package cn.noname.coder.agent.cases.agent.impl;
 
 import cn.noname.coder.agent.api.dto.CreateAgentRunRequestDTO;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
+import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelGateway;
 import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.*;
 import cn.noname.coder.agent.domain.agent.model.valobj.*;
@@ -32,7 +34,7 @@ class AgentRunExecutorTest {
         InMemoryRunRepository runRepository = new InMemoryRunRepository();
         InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
         CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new StubArtifactPort(),
+                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
                 new StubModelConfigPort(), new AgentRuntimeProperties(), executor(runRepository, recordRepository,
                 request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
                 new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
@@ -51,7 +53,7 @@ class AgentRunExecutorTest {
         InMemoryRunRepository runRepository = new InMemoryRunRepository();
         InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
         CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new StubArtifactPort(),
+                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
                 new StubModelConfigPort(), new AgentRuntimeProperties(), executor(runRepository, recordRepository,
                 request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
                 new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
@@ -182,7 +184,7 @@ class AgentRunExecutorTest {
         properties.getModel().setModel("test-model");
         runRepository.save(newRun("run_existing", 20, 8, 16, 300));
         CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new StubArtifactPort(),
+                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
                 new StubModelConfigPort(), properties, executor(runRepository, recordRepository,
                 request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
                 new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
@@ -222,8 +224,9 @@ class AgentRunExecutorTest {
                                       IArtifactPort artifactPort,
                                       boolean cancelOnSecondFind) {
         runRepository.cancelOnSecondFind = cancelOnSecondFind;
-        return new AgentRunExecutor(runRepository, recordRepository, new StubWorkspacePort(false),
-                new StubModelConfigPort(), modelGateway, toolGateway, artifactPort, new AgentRuntimeProperties());
+        return new AgentRunExecutor(runRepository, recordRepository, new InMemoryConversationRepository(), new StubWorkspacePort(false),
+                new StubModelConfigPort(), modelGateway, toolGateway, artifactPort,
+                new NoopEventPublisher(), new AgentRuntimeProperties());
     }
 
     private AgentRun newRun(String runId, int maxSteps, int maxModelCalls, int maxToolCalls, int timeoutSeconds) {
@@ -286,11 +289,15 @@ class AgentRunExecutorTest {
                     .id(run.getId())
                     .runId(run.getRunId())
                     .workspaceKey(run.getWorkspaceKey())
+                    .conversationId(run.getConversationId())
                     .task(run.getTask())
                     .model(run.getModel())
+                    .permissionLevel(run.getPermissionLevel())
                     .status(run.getStatus())
                     .finalAnswer(run.getFinalAnswer())
                     .failureReason(run.getFailureReason())
+                    .gitBranch(run.getGitBranch())
+                    .commitHash(run.getCommitHash())
                     .maxSteps(run.getMaxSteps())
                     .maxModelCalls(run.getMaxModelCalls())
                     .maxToolCalls(run.getMaxToolCalls())
@@ -346,6 +353,67 @@ class AgentRunExecutorTest {
         @Override
         public List<RunArtifact> listArtifacts(String runId) {
             return artifacts.stream().filter(v -> runId.equals(v.getRunId())).toList();
+        }
+    }
+
+    static class InMemoryConversationRepository implements IAgentConversationRepository {
+        private final Map<String, AgentConversation> conversations = new HashMap<>();
+        private final List<AgentMessage> messages = new ArrayList<>();
+        private final List<PermissionAudit> audits = new ArrayList<>();
+
+        @Override
+        public void saveConversation(AgentConversation conversation) {
+            conversations.put(conversation.getConversationId(), conversation);
+        }
+
+        @Override
+        public void updateConversation(AgentConversation conversation) {
+            conversations.put(conversation.getConversationId(), conversation);
+        }
+
+        @Override
+        public Optional<AgentConversation> findConversation(String conversationId) {
+            return Optional.ofNullable(conversations.get(conversationId));
+        }
+
+        @Override
+        public List<AgentConversation> listConversations(String workspaceKey) {
+            return conversations.values().stream().toList();
+        }
+
+        @Override
+        public void saveMessage(AgentMessage message) {
+            messages.add(message);
+        }
+
+        @Override
+        public List<AgentMessage> listMessages(String conversationId) {
+            return messages.stream().filter(v -> conversationId.equals(v.getConversationId())).toList();
+        }
+
+        @Override
+        public void savePermissionAudit(PermissionAudit audit) {
+            audits.add(audit);
+        }
+    }
+
+    static class NoopEventPublisher implements IAgentRunEventPublisher {
+        @Override
+        public void publish(AgentRunEvent event) {
+        }
+
+        @Override
+        public List<AgentRunEvent> history(String runId) {
+            return List.of();
+        }
+
+        @Override
+        public java.util.concurrent.BlockingQueue<AgentRunEvent> subscribe(String runId) {
+            return new java.util.concurrent.LinkedBlockingQueue<>();
+        }
+
+        @Override
+        public void unsubscribe(String runId, java.util.concurrent.BlockingQueue<AgentRunEvent> queue) {
         }
     }
 

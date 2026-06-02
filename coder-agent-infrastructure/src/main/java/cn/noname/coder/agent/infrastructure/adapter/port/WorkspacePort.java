@@ -3,7 +3,6 @@ package cn.noname.coder.agent.infrastructure.adapter.port;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceCapability;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.exception.AppException;
@@ -63,7 +62,7 @@ public class WorkspacePort implements IWorkspacePort {
                 throw new AppException("WORKSPACE_PATH_INVALID", "workspaceRoot 不存在或不是目录：" + workspaceKey);
             }
             log.info("解析 workspace 成功 source=config workspaceKey={} rootPath={}", workspaceKey, root);
-            return Optional.of(new WorkspaceDescriptor(workspaceKey, root, WorkspaceCapability.conservativeDefaults()));
+            return Optional.of(new WorkspaceDescriptor(workspaceKey, root));
         } catch (InvalidPathException e) {
             throw new AppException("WORKSPACE_PATH_INVALID", "workspaceRoot 路径格式非法：" + workspaceKey);
         }
@@ -74,7 +73,7 @@ public class WorkspacePort implements IWorkspacePort {
         if (!Files.isDirectory(root)) {
             throw new AppException("WORKSPACE_PATH_INVALID", "workspaceRoot 不存在或不是目录：" + workspace.getWorkspaceKey());
         }
-        return new WorkspaceDescriptor(workspace.getWorkspaceKey(), root, workspace.getCapabilities());
+        return new WorkspaceDescriptor(workspace.getWorkspaceKey(), root);
     }
 
     @Override

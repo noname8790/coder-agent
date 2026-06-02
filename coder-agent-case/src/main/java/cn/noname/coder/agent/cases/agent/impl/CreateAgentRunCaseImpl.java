@@ -6,13 +6,17 @@ import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.AuditEvent;
+import cn.noname.coder.agent.domain.agent.model.entity.PermissionAudit;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.AuditEventType;
@@ -37,6 +41,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
     private final IWorkspacePort workspacePort;
     private final IAgentRunRepository runRepository;
     private final IAgentRecordRepository recordRepository;
+    private final IAgentConversationRepository conversationRepository;
     private final IArtifactPort artifactPort;
     private final IModelConfigPort modelConfigPort;
     private final AgentRuntimeProperties properties;
@@ -46,6 +51,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
     public CreateAgentRunCaseImpl(IWorkspacePort workspacePort,
                                   IAgentRunRepository runRepository,
                                   IAgentRecordRepository recordRepository,
+                                  IAgentConversationRepository conversationRepository,
                                   IArtifactPort artifactPort,
                                   IModelConfigPort modelConfigPort,
                                   AgentRuntimeProperties properties,
@@ -54,6 +60,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         this.workspacePort = workspacePort;
         this.runRepository = runRepository;
         this.recordRepository = recordRepository;
+        this.conversationRepository = conversationRepository;
         this.artifactPort = artifactPort;
         this.modelConfigPort = modelConfigPort;
         this.properties = properties;
@@ -81,13 +88,15 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
             throw new AppException("CONCURRENT_LIMIT", "当前运行数已达到上限：" + properties.getBudget().getMaxConcurrentRuns());
         }
 
-        ModelBackendConfig modelConfig = resolveModel(request);
-        AgentRun run = buildRun(request, modelConfig.modelKey());
-        log.info("创建 Agent 运行 runId={} workspaceKey={} model={} actualModel={}",
-                run.getRunId(), run.getWorkspaceKey(), modelConfig.modelKey(), modelConfig.actualModel());
-        log.info("Agent 运行模式 runId={} mode={} workspaceCapabilities={}",
-                run.getRunId(), run.getMode(), workspace.capabilities());
+        AgentConversation conversation = resolveConversation(request);
+        ModelBackendConfig modelConfig = resolveModel(request, conversation);
+        AgentPermissionLevel permissionLevel = resolvePermissionLevel(request, conversation);
+        AgentRun run = buildRun(request, modelConfig.modelKey(), conversation, permissionLevel);
+        log.info("创建 Agent 运行 runId={} workspaceKey={} conversationId={} model={} actualModel={} permissionLevel={}",
+                run.getRunId(), run.getWorkspaceKey(), run.getConversationId(), modelConfig.modelKey(), modelConfig.actualModel(), permissionLevel);
+        log.info("Agent 权限等级 runId={} permissionLevel={}", run.getRunId(), permissionLevel);
         runRepository.save(run);
+        saveUserMessageAndAudit(run, conversation, permissionLevel);
         artifactPort.initializeRun(workspace, run).forEach(recordRepository::saveArtifact);
         taskExecutor.execute(() -> agentRunExecutor.execute(run.getRunId()));
         log.info("Agent 运行已提交后台执行 runId={}", run.getRunId());
@@ -100,20 +109,52 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         }
     }
 
-    private ModelBackendConfig resolveModel(CreateAgentRunRequestDTO request) {
-        return modelConfigPort.resolve(request.model())
-                .orElseThrow(() -> new AppException("MODEL_NOT_CONFIGURED", "模型未配置：" + request.model()));
+    private AgentConversation resolveConversation(CreateAgentRunRequestDTO request) {
+        if (!StringUtils.hasText(request.conversationId())) {
+            return null;
+        }
+        AgentConversation conversation = conversationRepository.findConversation(request.conversationId())
+                .orElseThrow(() -> new AppException("CONVERSATION_NOT_FOUND", "会话不存在：" + request.conversationId()));
+        if (!conversation.getWorkspaceKey().equals(request.workspaceKey())) {
+            throw new AppException("CONVERSATION_WORKSPACE_MISMATCH", "会话所属 workspace 与请求不一致");
+        }
+        return conversation;
     }
 
-    private AgentRun buildRun(CreateAgentRunRequestDTO request, String modelKey) {
+    private ModelBackendConfig resolveModel(CreateAgentRunRequestDTO request, AgentConversation conversation) {
+        String model = StringUtils.hasText(request.model())
+                ? request.model()
+                : conversation == null ? request.model() : conversation.getDefaultModel();
+        return modelConfigPort.resolve(model)
+                .orElseThrow(() -> new AppException("MODEL_NOT_CONFIGURED", "模型未配置：" + model));
+    }
+
+    private AgentPermissionLevel resolvePermissionLevel(CreateAgentRunRequestDTO request, AgentConversation conversation) {
+        try {
+            if (StringUtils.hasText(request.permissionLevel())) {
+                return AgentPermissionLevel.parse(request.permissionLevel());
+            }
+            if (conversation != null && conversation.getDefaultPermissionLevel() != null) {
+                return conversation.getDefaultPermissionLevel();
+            }
+            return AgentPermissionLevel.L1_READ_ONLY;
+        } catch (Exception e) {
+            throw new AppException("INVALID_PERMISSION_LEVEL", "未知权限等级：" + request.permissionLevel());
+        }
+    }
+
+    private AgentRun buildRun(CreateAgentRunRequestDTO request,
+                              String modelKey,
+                              AgentConversation conversation,
+                              AgentPermissionLevel permissionLevel) {
         AgentRuntimeProperties.Budget budget = properties.getBudget();
-        AgentRunMode mode = parseMode(request.mode());
         return AgentRun.builder()
                 .runId("run_" + UUID.randomUUID().toString().replace("-", ""))
                 .workspaceKey(request.workspaceKey())
+                .conversationId(conversation == null ? null : conversation.getConversationId())
                 .task(request.task())
                 .model(modelKey)
-                .mode(mode)
+                .permissionLevel(permissionLevel)
                 .status(AgentRunStatus.CREATED)
                 .maxSteps(budget.getMaxSteps())
                 .maxModelCalls(budget.getMaxModelCalls())
@@ -126,14 +167,37 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                 .build();
     }
 
-    private AgentRunMode parseMode(String value) {
-        if (!StringUtils.hasText(value)) {
-            return AgentRunMode.READ_ONLY;
+    private void saveUserMessageAndAudit(AgentRun run, AgentConversation conversation, AgentPermissionLevel permissionLevel) {
+        if (conversation != null) {
+            conversationRepository.saveMessage(AgentMessage.builder()
+                    .messageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
+                    .conversationId(conversation.getConversationId())
+                    .runId(run.getRunId())
+                    .role("USER")
+                    .content(run.getTask())
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            conversation.setUpdatedAt(LocalDateTime.now());
+            conversationRepository.updateConversation(conversation);
         }
-        try {
-            return AgentRunMode.valueOf(value);
-        } catch (Exception e) {
-            throw new AppException("INVALID_RUN_MODE", "未知运行模式：" + value);
+        if (permissionLevel == AgentPermissionLevel.L3_REPO_WRITE) {
+            conversationRepository.savePermissionAudit(PermissionAudit.builder()
+                    .runId(run.getRunId())
+                    .conversationId(run.getConversationId())
+                    .workspaceKey(run.getWorkspaceKey())
+                    .permissionLevel(permissionLevel)
+                    .action("PERMISSION_LEVEL_SELECTED")
+                    .detail("用户选择仓库写入权限")
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            recordRepository.saveAuditEvent(AuditEvent.builder()
+                    .runId(run.getRunId())
+                    .eventType(AuditEventType.PERMISSION_LEVEL_SELECTED)
+                    .message("用户选择仓库写入权限")
+                    .detail(permissionLevel.name())
+                    .createdAt(LocalDateTime.now())
+                    .build());
         }
     }
+
 }

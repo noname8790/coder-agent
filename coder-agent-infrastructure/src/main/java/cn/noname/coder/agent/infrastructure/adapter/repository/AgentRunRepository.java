@@ -50,12 +50,15 @@ public class AgentRunRepository implements IAgentRunRepository {
         po.setId(run.getId());
         po.setRunId(run.getRunId());
         po.setWorkspaceKey(run.getWorkspaceKey());
+        po.setConversationId(run.getConversationId());
         po.setTask(run.getTask());
         po.setModel(run.getModel());
-        po.setMode(run.getMode() == null ? "READ_ONLY" : run.getMode().name());
+        po.setPermissionLevel(run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name());
         po.setStatus(run.getStatus() == null ? null : run.getStatus().name());
         po.setFinalAnswer(run.getFinalAnswer());
         po.setFailureReason(run.getFailureReason());
+        po.setGitBranch(run.getGitBranch());
+        po.setCommitHash(run.getCommitHash());
         po.setMaxSteps(run.getMaxSteps());
         po.setMaxModelCalls(run.getMaxModelCalls());
         po.setMaxToolCalls(run.getMaxToolCalls());
@@ -75,12 +78,15 @@ public class AgentRunRepository implements IAgentRunRepository {
                 .id(po.getId())
                 .runId(po.getRunId())
                 .workspaceKey(po.getWorkspaceKey())
+                .conversationId(po.getConversationId())
                 .task(po.getTask())
                 .model(po.getModel())
-                .mode(cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode.valueOf(po.getMode() == null ? "READ_ONLY" : po.getMode()))
+                .permissionLevel(cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel.parse(po.getPermissionLevel()))
                 .status(AgentRunStatus.valueOf(po.getStatus()))
                 .finalAnswer(po.getFinalAnswer())
                 .failureReason(po.getFailureReason())
+                .gitBranch(po.getGitBranch())
+                .commitHash(po.getCommitHash())
                 .maxSteps(po.getMaxSteps())
                 .maxModelCalls(po.getMaxModelCalls())
                 .maxToolCalls(po.getMaxToolCalls())

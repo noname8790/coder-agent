@@ -1,7 +1,6 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
 import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceCapability;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceStatus;
 import cn.noname.coder.agent.infrastructure.dao.IWorkspaceDao;
 import cn.noname.coder.agent.infrastructure.dao.po.WorkspacePO;
@@ -11,7 +10,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,7 +27,6 @@ class WorkspaceRepositoryTest {
                 .id(1L)
                 .workspaceKey("demo")
                 .rootPath(Path.of("E:/demo"))
-                .capabilities(List.of(WorkspaceCapability.READ_REPOSITORY))
                 .status(WorkspaceStatus.ACTIVE)
                 .createdAt(LocalDateTime.now().minusDays(1))
                 .updatedAt(LocalDateTime.now())

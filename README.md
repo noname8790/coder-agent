@@ -2,14 +2,14 @@
 
 `coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 接收任务，在服务端配置的本地 `workspaceKey` 内执行受限工具，调用 OpenAI-compatible 模型接口，并把运行记录写入 MySQL，把可回放工件写入 `{workspaceRoot}/.coder/runs/{runId}/`。
 
-当前第二版定位是安全编辑闭环：读仓库、搜索、执行受限诊断命令、按 `READ_ONLY/EDIT` 模式受控新增或修改文件、运行测试/构建、生成 diff 和审查工件。第二版仍不开放文件删除、Git commit/push/reset、分支创建或 PR 生成。
+当前第三版后端定位是本地仓库 Agent 基础闭环：读仓库、搜索、按权限等级执行安全编辑或仓库写入、本地 Git 分支/提交、生成 PR 草稿、SSE 运行事件流、会话历史和回滚材料。第三版仍不开放 `git push`、`git clean`、`git reset --hard` 或远程 PR 创建。
 
 ## 模块
 
 - `coder-agent-types`：通用枚举、异常、响应、配置。
 - `coder-agent-api`：REST DTO。
 - `coder-agent-domain`：领域对象和值对象、端口接口。
-- `coder-agent-case`：创建、查询、取消和后台执行编排。
+- `coder-agent-case`：会话、权限等级、创建、查询、取消、事件发布和后台执行编排。
 - `coder-agent-infrastructure`：MySQL、OpenAI-compatible 网关、本地工具、工件落盘。
 - `coder-agent-trigger`：HTTP Controller。
 - `coder-agent-app`：Spring Boot 启动和配置。
@@ -22,16 +22,23 @@
 docs/dev-ops/mysql/sql/coder_agent.sql
 ```
 
-如果是从首版数据库升级，`CREATE TABLE IF NOT EXISTS` 不会修改既有 `agent_run` 表，需要手动执行迁移：
+如果是从首版或第二版数据库升级，`CREATE TABLE IF NOT EXISTS` 不会修改既有 `agent_run` 表。第三版升级字段和回滚 SQL 已写在 `docs/dev-ops/mysql/sql/coder_agent.sql` 尾部，至少需要新增：
 
-```sql
-ALTER TABLE agent_run ADD COLUMN mode VARCHAR(32) NOT NULL DEFAULT 'READ_ONLY' COMMENT '运行模式：READ_ONLY只读，EDIT编辑' AFTER model;
-```
+- `agent_conversation`
+- `agent_message`
+- `agent_permission_audit`
+- `agent_run.conversation_id`
+- `agent_run.permission_level`
+- `agent_run.git_branch`
+- `agent_run.commit_hash`
 
 涉及表：
 
 - `agent_run`
 - `agent_workspace`
+- `agent_conversation`
+- `agent_message`
+- `agent_permission_audit`
 - `agent_step`
 - `model_call`
 - `tool_call`
@@ -101,7 +108,7 @@ java -jar coder-agent-app\target\coder-agent.jar
 ```powershell
 curl -X POST http://127.0.0.1:8080/api/workspaces `
   -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/Projects/demo\",\"capabilities\":[\"READ_REPOSITORY\",\"GIT_READ\",\"RUN_TEST\",\"ADD_FILE\",\"MODIFY_FILE\"]}"
+  -d "{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/Projects/demo\"}"
 ```
 
 查询 workspace：
@@ -125,12 +132,42 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs `
   -d "{\"workspaceKey\":\"coder-agent\",\"task\":\"请阅读仓库结构并说明这个项目的模块职责\"}"
 ```
 
-创建编辑运行，必须显式传 `mode=EDIT`，并且 workspace capabilities 必须包含 `ADD_FILE` 或 `MODIFY_FILE`：
+查询权限等级：
+
+```powershell
+curl http://127.0.0.1:8080/api/permission-levels
+```
+
+创建会话：
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/conversations `
+  -H "Content-Type: application/json" `
+  -d "{\"workspaceKey\":\"demo\",\"title\":\"修复计算器\",\"defaultModel\":\"glm-5\",\"defaultPermissionLevel\":\"L2_SAFE_EDIT\"}"
+```
+
+查询会话与消息：
+
+```powershell
+curl http://127.0.0.1:8080/api/conversations?workspaceKey=demo
+curl http://127.0.0.1:8080/api/conversations/{conversationId}
+curl http://127.0.0.1:8080/api/conversations/{conversationId}/messages
+```
+
+创建 L2 安全编辑运行：
 
 ```powershell
 curl -X POST http://127.0.0.1:8080/api/agent-runs `
   -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"model\":\"glm-5\",\"mode\":\"EDIT\",\"task\":\"请新增一个 docs/agent-note.md 并运行 mvn test\"}"
+  -d "{\"workspaceKey\":\"demo\",\"conversationId\":\"{conversationId}\",\"model\":\"glm-5\",\"permissionLevel\":\"L2_SAFE_EDIT\",\"task\":\"请新增一个 docs/agent-note.md 并运行 mvn test\"}"
+```
+
+创建 L3 仓库写入运行，允许覆盖/删除文件、本地分支和本地 commit：
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/agent-runs `
+  -H "Content-Type: application/json" `
+  -d "{\"workspaceKey\":\"demo\",\"conversationId\":\"{conversationId}\",\"model\":\"glm-5\",\"permissionLevel\":\"L3_REPO_WRITE\",\"task\":\"请修复 Calculator 测试，必要时覆盖或删除无用文件，完成后创建本地 commit 并生成 PR 草稿\"}"
 ```
 
 创建运行，指定模型 key：
@@ -153,6 +190,12 @@ curl http://127.0.0.1:8080/api/agent-runs/{runId}
 curl http://127.0.0.1:8080/api/agent-runs/{runId}/trace
 ```
 
+订阅 SSE 运行事件：
+
+```powershell
+curl -N http://127.0.0.1:8080/api/agent-runs/{runId}/events
+```
+
 取消运行：
 
 ```powershell
@@ -167,23 +210,25 @@ curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
 - `read_file`
 - `search_text`
 - `run_shell`
-- `apply_patch`：仅 `EDIT` 且具备 `MODIFY_FILE` 时可见，只能修改已有文本文件。
-- `write_file`：仅 `EDIT` 且具备 `ADD_FILE` 时可见，只能新建文本文件，不覆盖已有文件。
+- `apply_patch`：`L2_SAFE_EDIT` 及以上可见，只能修改已有文本文件。
+- `write_file`：`L2_SAFE_EDIT` 及以上可见，只能新建文本文件，不覆盖已有文件。
+- `overwrite_file`：仅 `L3_REPO_WRITE` 可见，覆盖已有文本文件。
+- `delete_file`：仅 `L3_REPO_WRITE` 可见，删除普通文本文件。
 
-workspace capability 与工具/命令映射：
+权限等级：
 
-- `READ_REPOSITORY`：`list_files`、`read_file`、`search_text`
-- `GIT_READ`：`git status`、`git diff`、`git log`
-- `RUN_TEST`：测试命令，如 `mvn test`、`mvn -q test`、`mvn clean test`
-- `RUN_BUILD`：构建命令，如 `mvn package`、`mvn clean package`
-- `ADD_FILE`：`write_file`
-- `MODIFY_FILE`：`apply_patch`
+- `L1_READ_ONLY`：读取、搜索、列目录、Git 只读命令。
+- `L2_SAFE_EDIT`：L1 + 新增文件、patch 修改、测试/构建。
+- `L3_REPO_WRITE`：L2 + 覆盖文件、删除文件、本地分支、`git add`、`git commit`、PR 草稿和回滚材料。
 
 默认允许命令前缀：
 
 - `git status`
 - `git diff`
 - `git log`
+- `git checkout -b`
+- `git add`
+- `git commit`
 - `mvn test`
 - `mvn -q test`
 - `mvn clean test`
@@ -192,7 +237,7 @@ workspace capability 与工具/命令映射：
 - `mvn -pl`
 - `java -version`
 
-包含 `&&`、`|`、重定向、删除、移动、`git reset`、`git push`、`git commit` 等高风险 token 的命令会被拒绝。即使处于 `EDIT` 模式，`git commit`、`git push`、`git reset`、`git branch` 仍会被拒绝。
+包含 `&&`、`|`、重定向、删除、移动、`git reset`、`git push`、`git clean` 等高风险 token 的命令会被拒绝。即使处于 `L3_REPO_WRITE`，`git push`、`git clean`、`git reset --hard` 仍会被拒绝。
 
 编辑受保护路径：
 
@@ -221,9 +266,12 @@ workspace capability 与工具/命令映射：
 {workspaceRoot}/.coder/runs/{runId}/changed-files.json
 {workspaceRoot}/.coder/runs/{runId}/test-report.json
 {workspaceRoot}/.coder/runs/{runId}/review-summary.md
+{workspaceRoot}/.coder/runs/{runId}/rollback.patch
+{workspaceRoot}/.coder/runs/{runId}/file-backup/*
+{workspaceRoot}/.coder/runs/{runId}/pull-request.md
 ```
 
-`final-result.json` 会包含 `editMode`、`changed`、`changedFileCount`、`testStatus` 和新增审查工件路径。
+`final-result.json` 会包含 `permissionLevel`、`conversationId`、`changed`、`changedFileCount`、`testStatus`、`gitBranch`、`commitHash`、`prDraftPath`、`rollbackArtifacts` 和新增审查工件路径。
 
 ## 真实 API 冒烟验证
 
@@ -232,12 +280,13 @@ workspace capability 与工具/命令映射：
 - `agent_run` 进入 `SUCCEEDED`，或模型不可用时进入 `FAILED`。
 - `model_call` 至少有一条真实模型调用记录。
 - `trace.jsonl` 可以逐行解析。
-- `final-result.json` 包含 `status`、`model`、`actual_model`、`attempts`、`tool_steps`、`model_calls`、`tool_calls`、`duration`。
+- `final-result.json` 包含 `status`、`model`、`actual_model`、`permissionLevel`、`attempts`、`tool_steps`、`model_calls`、`tool_calls`、`duration`。
 
 ## 回滚方案
 
 - 停止 `coder-agent-app` 服务。
-- 停止使用 `/api/workspaces` 和 `mode=EDIT`，创建任务只传 `READ_ONLY` 或不传 `mode`。
-- 从工具注册中移除 `apply_patch`、`write_file`，仅保留只读工具。
-- 保留 `agent_workspace` 表和 `agent_run.mode` 字段但不再写入；必要时通过 SQL 删除新增表/列。
+- 停止使用 `/api/conversations`、`/api/permission-levels`、`/api/agent-runs/{runId}/events` 和 `permissionLevel=L2/L3`。
+- 将新任务默认限制为 `L1_READ_ONLY`。
+- 从工具注册中移除 `overwrite_file`、`delete_file` 和 L3 Git 写入能力，必要时仅保留只读工具。
+- 保留第三版新增表/字段但不再写入；必要时执行 SQL 中的第三版回滚语句删除新增表/列。
 - 如需清理测试数据，删除 MySQL 中对应 `run_id` 的运行记录，并删除 workspace 下 `.coder/runs/{runId}/` 工件目录。

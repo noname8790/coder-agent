@@ -1,9 +1,8 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceCapability;
 import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
@@ -40,11 +39,11 @@ public class ToolGateway implements IToolGateway {
     @Override
     public List<ToolDefinition> definitions(AgentRun run, WorkspaceDescriptor workspace) {
         List<ToolDefinition> definitions = localTools.stream()
-                .filter(tool -> canAdvertise(tool.definition().name(), run, workspace))
+                .filter(tool -> canAdvertise(tool.definition().name(), run))
                 .map(LocalTool::definition)
                 .toList();
-        log.info("组装工具定义 runId={} mode={} workspaceKey={} tools={}",
-                run.getRunId(), run.getMode(), workspace.workspaceKey(),
+        log.info("组装工具定义 runId={} permissionLevel={} workspaceKey={} tools={}",
+                run.getRunId(), permissionLevel(run), workspace.workspaceKey(),
                 definitions.stream().map(ToolDefinition::name).toList());
         return definitions;
     }
@@ -67,7 +66,7 @@ public class ToolGateway implements IToolGateway {
             log.warn("工具调用被拒绝 runId={} tool={} reason=UNKNOWN_TOOL", runId, invocation.name());
             return new ToolResult(CallStatus.REJECTED, "未知工具：" + invocation.name(), "", 1, "UNKNOWN_TOOL");
         }
-        ToolResult rejected = rejectIfNotAllowed(run, workspace, invocation);
+        ToolResult rejected = rejectIfNotAllowed(run, invocation);
         if (rejected != null) {
             log.warn("工具调用被拒绝 runId={} tool={} code={} summary={}",
                     runId, invocation.name(), rejected.errorMessage(), rejected.summary());
@@ -88,75 +87,59 @@ public class ToolGateway implements IToolGateway {
         }
     }
 
-    private boolean canAdvertise(String toolName, AgentRun run, WorkspaceDescriptor workspace) {
-        if (run == null || workspace == null) {
+    private boolean canAdvertise(String toolName, AgentRun run) {
+        if (run == null) {
             return true;
         }
-        if (Set.of("list_files", "read_file", "search_text").contains(toolName)) {
-            return workspace.hasCapability(WorkspaceCapability.READ_REPOSITORY);
+        AgentPermissionLevel permissionLevel = permissionLevel(run);
+        if (!permissionLevel.canAdvertise(toolName)) {
+            return false;
         }
-        if ("run_shell".equals(toolName)) {
-            return workspace.hasCapability(WorkspaceCapability.GIT_READ)
-                    || workspace.hasCapability(WorkspaceCapability.RUN_TEST)
-                    || workspace.hasCapability(WorkspaceCapability.RUN_BUILD);
+        if ("apply_patch".equals(toolName) || "write_file".equals(toolName)) {
+            return permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT);
         }
-        if ("apply_patch".equals(toolName)) {
-            return run.getMode() == AgentRunMode.EDIT && workspace.hasCapability(WorkspaceCapability.MODIFY_FILE);
-        }
-        if ("write_file".equals(toolName)) {
-            return run.getMode() == AgentRunMode.EDIT && workspace.hasCapability(WorkspaceCapability.ADD_FILE);
+        if (Set.of("overwrite_file", "delete_file", "generate_pr_draft").contains(toolName)) {
+            return permissionLevel.atLeast(AgentPermissionLevel.L3_REPO_WRITE);
         }
         return true;
     }
 
-    private ToolResult rejectIfNotAllowed(AgentRun run, WorkspaceDescriptor workspace, ToolInvocation invocation) {
+    private ToolResult rejectIfNotAllowed(AgentRun run, ToolInvocation invocation) {
         if (run == null) {
             return null;
         }
         String toolName = invocation.name();
-        if (Set.of("list_files", "read_file", "search_text").contains(toolName)
-                && !workspace.hasCapability(WorkspaceCapability.READ_REPOSITORY)) {
-            return rejected("workspace 缺少读取仓库能力", "CAPABILITY_REJECTED");
-        }
-        if ("apply_patch".equals(toolName)) {
-            if (run.getMode() != AgentRunMode.EDIT) {
-                return rejected("READ_ONLY 模式禁止修改文件", "READ_ONLY_EDIT_REJECTED");
-            }
-            if (!workspace.hasCapability(WorkspaceCapability.MODIFY_FILE)) {
-                return rejected("workspace 缺少修改文件能力", "CAPABILITY_REJECTED");
-            }
-        }
-        if ("write_file".equals(toolName)) {
-            if (run.getMode() != AgentRunMode.EDIT) {
-                return rejected("READ_ONLY 模式禁止新增文件", "READ_ONLY_EDIT_REJECTED");
-            }
-            if (!workspace.hasCapability(WorkspaceCapability.ADD_FILE)) {
-                return rejected("workspace 缺少新增文件能力", "CAPABILITY_REJECTED");
-            }
+        AgentPermissionLevel permissionLevel = permissionLevel(run);
+        if (!permissionLevel.canAdvertise(toolName)) {
+            return rejected("当前权限等级禁止工具：" + toolName, "PERMISSION_REJECTED");
         }
         if ("run_shell".equals(toolName)) {
-            return rejectShellIfNotAllowed(workspace, invocation.argumentsJson());
+            return rejectShellIfNotAllowed(permissionLevel, invocation.argumentsJson());
         }
         return null;
     }
 
-    private ToolResult rejectShellIfNotAllowed(WorkspaceDescriptor workspace, String argumentsJson) {
+    private ToolResult rejectShellIfNotAllowed(AgentPermissionLevel permissionLevel, String argumentsJson) {
         String command = ToolJson.string(ToolJson.parse(argumentsJson), "command", "").trim().toLowerCase();
-        if (command.startsWith("git commit") || command.startsWith("git push") || command.startsWith("git reset")
-                || command.startsWith("git branch")) {
-            return rejected("第二版禁止高风险 Git 操作：" + command, "DANGEROUS_COMMAND");
+        if (command.startsWith("git push") || command.startsWith("git clean") || command.startsWith("git reset --hard")) {
+            return rejected("第三版禁止高风险 Git 操作：" + command, "DANGEROUS_COMMAND");
         }
-        if ((command.equals("git status") || command.startsWith("git diff") || command.startsWith("git log"))
-                && !workspace.hasCapability(WorkspaceCapability.GIT_READ)) {
-            return rejected("workspace 缺少 Git 只读能力", "CAPABILITY_REJECTED");
+        if (isGitWriteCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L3_REPO_WRITE)) {
+            return rejected("当前权限等级禁止 Git 写入命令：" + command, "PERMISSION_REJECTED");
         }
-        if (isTestCommand(command) && !workspace.hasCapability(WorkspaceCapability.RUN_TEST)) {
-            return rejected("workspace 缺少运行测试能力", "CAPABILITY_REJECTED");
+        if (isTestCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
+            return rejected("当前权限等级禁止运行测试", "PERMISSION_REJECTED");
         }
-        if (isBuildCommand(command) && !workspace.hasCapability(WorkspaceCapability.RUN_BUILD)) {
-            return rejected("workspace 缺少运行构建能力", "CAPABILITY_REJECTED");
+        if (isBuildCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
+            return rejected("当前权限等级禁止运行构建", "PERMISSION_REJECTED");
         }
         return null;
+    }
+
+    private boolean isGitWriteCommand(String command) {
+        return command.startsWith("git checkout -b")
+                || command.startsWith("git add")
+                || command.startsWith("git commit");
     }
 
     private boolean isTestCommand(String command) {
@@ -173,5 +156,9 @@ public class ToolGateway implements IToolGateway {
 
     private ToolResult rejected(String message, String code) {
         return new ToolResult(CallStatus.REJECTED, message, "", 1, code);
+    }
+
+    private AgentPermissionLevel permissionLevel(AgentRun run) {
+        return run.getPermissionLevel() == null ? AgentPermissionLevel.L1_READ_ONLY : run.getPermissionLevel();
     }
 }

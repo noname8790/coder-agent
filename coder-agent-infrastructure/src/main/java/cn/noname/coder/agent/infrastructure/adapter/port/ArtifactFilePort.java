@@ -118,6 +118,8 @@ public class ArtifactFilePort implements IArtifactPort {
             Path changed = runDir(workspace, run.getRunId()).resolve("changed-files.json");
             writeJson(changed, changedFiles.stream().map(this::changedFileJson).toList());
             artifacts.add(artifact(run.getRunId(), ArtifactType.CHANGED_FILES, workspace, changed));
+
+            artifacts.addAll(writeRollbackArtifacts(workspace, run, changedFiles));
         }
         if (testReports != null && !testReports.isEmpty()) {
             Path report = runDir(workspace, run.getRunId()).resolve("test-report.json");
@@ -128,6 +130,15 @@ public class ArtifactFilePort implements IArtifactPort {
         Files.createDirectories(review.getParent());
         Files.writeString(review, buildReviewSummary(run, changedFiles, testReports), StandardCharsets.UTF_8);
         artifacts.add(artifact(run.getRunId(), ArtifactType.REVIEW_SUMMARY, workspace, review));
+        if (run.getPermissionLevel() != null
+                && "L3_REPO_WRITE".equals(run.getPermissionLevel().name())
+                && changedFiles != null
+                && !changedFiles.isEmpty()) {
+            Path prDraft = runDir(workspace, run.getRunId()).resolve("pull-request.md");
+            Files.writeString(prDraft, buildPrDraft(run, changedFiles, testReports), StandardCharsets.UTF_8);
+            artifacts.add(artifact(run.getRunId(), ArtifactType.PR_DRAFT, workspace, prDraft));
+            log.info("已生成 PR 草稿 runId={} path={}", run.getRunId(), prDraft);
+        }
         log.info("已写入审查工件 runId={} artifactCount={}", run.getRunId(), artifacts.size());
         return artifacts;
     }
@@ -168,14 +179,69 @@ public class ArtifactFilePort implements IArtifactPort {
             diff.append("diff --git a/").append(file.relativePath()).append(" b/").append(file.relativePath()).append(System.lineSeparator());
             if ("ADD".equals(file.changeType())) {
                 diff.append("new file mode 100644").append(System.lineSeparator());
+                diff.append("--- /dev/null").append(System.lineSeparator());
+                diff.append("+++ b/").append(file.relativePath()).append(System.lineSeparator());
+            } else if ("DELETE".equals(file.changeType())) {
+                diff.append("deleted file mode 100644").append(System.lineSeparator());
+                diff.append("--- a/").append(file.relativePath()).append(System.lineSeparator());
+                diff.append("+++ /dev/null").append(System.lineSeparator());
+            } else {
+                diff.append("--- a/").append(file.relativePath()).append(System.lineSeparator());
+                diff.append("+++ b/").append(file.relativePath()).append(System.lineSeparator());
             }
-            diff.append("--- a/").append(file.relativePath()).append(System.lineSeparator());
-            diff.append("+++ b/").append(file.relativePath()).append(System.lineSeparator());
             diff.append("@@").append(System.lineSeparator());
             appendPrefixed(diff, "-", file.beforeContent());
             appendPrefixed(diff, "+", file.afterContent());
         }
         return diff.toString();
+    }
+
+    @SneakyThrows
+    private List<RunArtifact> writeRollbackArtifacts(WorkspaceDescriptor workspace, AgentRun run, List<ChangedFile> changedFiles) {
+        List<RunArtifact> artifacts = new ArrayList<>();
+        Path rollback = runDir(workspace, run.getRunId()).resolve("rollback.patch");
+        Files.writeString(rollback, buildRollbackPatch(changedFiles), StandardCharsets.UTF_8);
+        artifacts.add(artifact(run.getRunId(), ArtifactType.ROLLBACK_PATCH, workspace, rollback));
+
+        Path backupDir = runDir(workspace, run.getRunId()).resolve("file-backup");
+        Files.createDirectories(backupDir);
+        for (ChangedFile file : changedFiles) {
+            if (file.beforeContent() == null || file.beforeContent().isEmpty()) {
+                continue;
+            }
+            Path backup = backupDir.resolve(file.relativePath().replace("/", "__"));
+            Files.writeString(backup, file.beforeContent(), StandardCharsets.UTF_8);
+            artifacts.add(artifact(run.getRunId(), ArtifactType.FILE_BACKUP, workspace, backup));
+        }
+        return artifacts;
+    }
+
+    private String buildRollbackPatch(List<ChangedFile> changedFiles) {
+        StringBuilder patch = new StringBuilder();
+        patch.append("# Rollback Patch").append(System.lineSeparator()).append(System.lineSeparator());
+        patch.append("# 说明：该文件记录人工回滚材料；必要时请结合 file-backup/ 手动恢复。").append(System.lineSeparator()).append(System.lineSeparator());
+        for (ChangedFile file : changedFiles) {
+            patch.append("diff --git a/").append(file.relativePath()).append(" b/").append(file.relativePath()).append(System.lineSeparator());
+            if ("ADD".equals(file.changeType())) {
+                patch.append("# 回滚新增文件：删除 ").append(file.relativePath()).append(System.lineSeparator());
+                patch.append("--- a/").append(file.relativePath()).append(System.lineSeparator());
+                patch.append("+++ /dev/null").append(System.lineSeparator());
+                appendPrefixed(patch, "-", file.afterContent());
+            } else if ("DELETE".equals(file.changeType())) {
+                patch.append("# 回滚删除文件：从备份恢复 ").append(file.relativePath()).append(System.lineSeparator());
+                patch.append("--- /dev/null").append(System.lineSeparator());
+                patch.append("+++ b/").append(file.relativePath()).append(System.lineSeparator());
+                appendPrefixed(patch, "+", file.beforeContent());
+            } else {
+                patch.append("# 回滚修改/覆盖文件：恢复覆盖前内容 ").append(file.relativePath()).append(System.lineSeparator());
+                patch.append("--- a/").append(file.relativePath()).append(System.lineSeparator());
+                patch.append("+++ b/").append(file.relativePath()).append(System.lineSeparator());
+                appendPrefixed(patch, "-", file.afterContent());
+                appendPrefixed(patch, "+", file.beforeContent());
+            }
+            patch.append(System.lineSeparator());
+        }
+        return patch.toString();
     }
 
     private void appendPrefixed(StringBuilder diff, String prefix, String content) {
@@ -190,7 +256,7 @@ public class ArtifactFilePort implements IArtifactPort {
         markdown.append("# Agent Run Review Summary").append(System.lineSeparator()).append(System.lineSeparator());
         markdown.append("- runId: ").append(run.getRunId()).append(System.lineSeparator());
         markdown.append("- task: ").append(run.getTask()).append(System.lineSeparator());
-        markdown.append("- mode: ").append(run.getMode() == null ? "READ_ONLY" : run.getMode().name()).append(System.lineSeparator());
+        markdown.append("- permissionLevel: ").append(run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name()).append(System.lineSeparator());
         markdown.append("- model: ").append(run.getModel()).append(System.lineSeparator()).append(System.lineSeparator());
         markdown.append("## Changed Files").append(System.lineSeparator());
         if (changedFiles == null || changedFiles.isEmpty()) {
@@ -207,7 +273,40 @@ public class ArtifactFilePort implements IArtifactPort {
         markdown.append(System.lineSeparator()).append("## Review Focus").append(System.lineSeparator());
         markdown.append("- 人工确认 diff 是否符合任务意图").append(System.lineSeparator());
         markdown.append("- 人工确认测试失败时是否需要继续修复").append(System.lineSeparator());
-        markdown.append("- 第二版不会自动 commit、push 或创建 PR").append(System.lineSeparator());
+        markdown.append("- 第三版不会自动 push 或创建远程 PR").append(System.lineSeparator());
+        return markdown.toString();
+    }
+
+    private String buildPrDraft(AgentRun run, List<ChangedFile> changedFiles, List<TestCommandReport> testReports) {
+        StringBuilder markdown = new StringBuilder();
+        markdown.append("# PR 草稿：").append(run.getTask()).append(System.lineSeparator()).append(System.lineSeparator());
+        markdown.append("## 摘要").append(System.lineSeparator());
+        markdown.append("- runId: ").append(run.getRunId()).append(System.lineSeparator());
+        markdown.append("- permissionLevel: ").append(run.getPermissionLevel()).append(System.lineSeparator());
+        markdown.append("- model: ").append(run.getModel()).append(System.lineSeparator());
+        if (run.getCommitHash() != null) {
+            markdown.append("- commit: ").append(run.getCommitHash()).append(System.lineSeparator());
+        }
+        markdown.append(System.lineSeparator()).append("## 变更文件").append(System.lineSeparator());
+        changedFiles.forEach(file -> markdown.append("- ").append(file.changeType()).append(" ").append(file.relativePath()).append(System.lineSeparator()));
+        markdown.append(System.lineSeparator()).append("## 测试结果").append(System.lineSeparator());
+        if (testReports == null || testReports.isEmpty()) {
+            markdown.append("- NOT_RUN").append(System.lineSeparator());
+        } else {
+            testReports.forEach(report -> markdown.append("- ").append(report.status())
+                    .append(" `").append(report.command()).append("` exitCode=").append(report.exitCode()).append(System.lineSeparator()));
+        }
+        markdown.append(System.lineSeparator()).append("## 风险点").append(System.lineSeparator());
+        markdown.append("- 请人工确认覆盖/删除文件是否符合预期").append(System.lineSeparator());
+        markdown.append("- 请人工确认测试覆盖是否充分").append(System.lineSeparator());
+        markdown.append(System.lineSeparator()).append("## 回滚说明").append(System.lineSeparator());
+        markdown.append("- 查看 `.coder/runs/").append(run.getRunId()).append("/rollback.patch`").append(System.lineSeparator());
+        markdown.append("- 查看 `.coder/runs/").append(run.getRunId()).append("/file-backup/`").append(System.lineSeparator());
+        markdown.append(System.lineSeparator()).append("## Reviewer Checklist").append(System.lineSeparator());
+        markdown.append("- [ ] 变更范围符合任务目标").append(System.lineSeparator());
+        markdown.append("- [ ] 无敏感信息写入").append(System.lineSeparator());
+        markdown.append("- [ ] 测试/构建结果可接受").append(System.lineSeparator());
+        markdown.append("- [ ] 回滚材料可用").append(System.lineSeparator());
         return markdown.toString();
     }
 

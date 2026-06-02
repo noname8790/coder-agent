@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunMode;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
 import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
@@ -75,7 +75,7 @@ class ArtifactFilePortTest {
                 .workspaceKey("repo")
                 .task("修改代码")
                 .model("test-model")
-                .mode(AgentRunMode.EDIT)
+                .permissionLevel(AgentPermissionLevel.L2_SAFE_EDIT)
                 .status(AgentRunStatus.SUCCEEDED)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -86,7 +86,7 @@ class ArtifactFilePortTest {
                 List.of(new TestCommandReport("mvn test", 0, 100L, "PASSED", "ok")));
 
         // Then diff、变更清单、测试报告和审查摘要都存在
-        assertEquals(4, artifacts.size());
+        assertEquals(6, artifacts.size());
         assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/patch.diff")));
         assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/changed-files.json")));
         assertTrue(Files.exists(workspaceRoot.resolve(".coder/runs/run_edit/test-report.json")));

@@ -3,16 +3,17 @@ package cn.noname.coder.agent.cases.workspace.impl;
 import cn.noname.coder.agent.api.dto.CreateWorkspaceRequestDTO;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceCapability;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceStatus;
-import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,30 +26,29 @@ class WorkspaceCaseTest {
     void shouldCreateWorkspaceGivenValidAbsoluteDirectory() {
         // Given 一个存在的本地绝对目录
         InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository, new AgentRuntimeProperties());
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
 
         // When 注册 workspace
-        var response = createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), List.of("READ_REPOSITORY", "RUN_TEST")));
+        var response = createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
 
-        // Then 保存规范化路径和显式 capabilities
+        // Then 保存规范化路径
         assertEquals("demo", response.workspaceKey());
         assertEquals(workspaceRoot.toAbsolutePath().normalize().toString(), response.rootPath());
         assertEquals("ACTIVE", response.status());
-        assertEquals(List.of("READ_REPOSITORY", "RUN_TEST"), response.capabilities());
     }
 
     @Test
     void shouldRejectWorkspaceGivenRelativeOrMissingPath() {
         // Given workspace 注册用例
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository(), new AgentRuntimeProperties());
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository());
 
         // When / Then 相对路径或不存在路径被拒绝
         AppException relative = assertThrows(AppException.class,
-                () -> createCase.create(new CreateWorkspaceRequestDTO("bad", "relative/path", null)));
+                () -> createCase.create(new CreateWorkspaceRequestDTO("bad", "relative/path")));
         assertEquals("WORKSPACE_PATH_INVALID", relative.getCode());
 
         AppException missing = assertThrows(AppException.class,
-                () -> createCase.create(new CreateWorkspaceRequestDTO("missing", workspaceRoot.resolve("missing").toString(), null)));
+                () -> createCase.create(new CreateWorkspaceRequestDTO("missing", workspaceRoot.resolve("missing").toString())));
         assertEquals("WORKSPACE_PATH_INVALID", missing.getCode());
     }
 
@@ -56,37 +56,22 @@ class WorkspaceCaseTest {
     void shouldRejectWorkspaceGivenDuplicateKey() {
         // Given 已存在 active workspace
         InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository, new AgentRuntimeProperties());
-        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null));
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
+        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
 
         // When 重复注册 / Then 拒绝
         AppException error = assertThrows(AppException.class,
-                () -> createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null)));
+                () -> createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString())));
         assertEquals("WORKSPACE_ALREADY_EXISTS", error.getCode());
-    }
-
-    @Test
-    void shouldUseConservativeDefaultCapabilitiesGivenCapabilitiesMissing() {
-        // Given 未传 capabilities
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository(), new AgentRuntimeProperties());
-
-        // When 注册 workspace
-        var response = createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null));
-
-        // Then 默认包含读取和 Git 只读，不包含新增/修改文件
-        assertTrue(response.capabilities().contains("READ_REPOSITORY"));
-        assertTrue(response.capabilities().contains("GIT_READ"));
-        assertFalse(response.capabilities().contains("ADD_FILE"));
-        assertFalse(response.capabilities().contains("MODIFY_FILE"));
     }
 
     @Test
     void shouldDeactivateWorkspaceGivenActiveWorkspace() {
         // Given 已注册 workspace
         InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository, new AgentRuntimeProperties());
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
         DeactivateWorkspaceCaseImpl deactivateCase = new DeactivateWorkspaceCaseImpl(repository);
-        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null));
+        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
 
         // When 停用 workspace
         var response = deactivateCase.deactivate("demo");
@@ -100,31 +85,29 @@ class WorkspaceCaseTest {
     void shouldReactivateWorkspaceGivenSameKeyWasDeactivated() {
         // Given workspace 已被逻辑停用
         InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository, new AgentRuntimeProperties());
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
         DeactivateWorkspaceCaseImpl deactivateCase = new DeactivateWorkspaceCaseImpl(repository);
-        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), List.of("READ_REPOSITORY")));
+        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
         deactivateCase.deactivate("demo");
 
         // When 使用同一个 workspaceKey 再次注册
-        var response = createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(),
-                List.of("READ_REPOSITORY", "MODIFY_FILE")));
+        var response = createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
 
         // Then 复用原记录并重新激活，避免唯一键冲突
         assertEquals("ACTIVE", response.status());
         assertNull(repository.findByWorkspaceKey("demo").orElseThrow().getDeletedAt());
-        assertEquals(List.of("READ_REPOSITORY", "MODIFY_FILE"), response.capabilities());
     }
 
     @Test
     void shouldRejectWorkspaceGivenSameKeyStillActive() {
         // Given workspace 仍处于启用状态
         InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository, new AgentRuntimeProperties());
-        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null));
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
+        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
 
         // When 使用同一个 workspaceKey 再次注册 / Then 拒绝
         AppException error = assertThrows(AppException.class,
-                () -> createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString(), null)));
+                () -> createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString())));
         assertEquals("WORKSPACE_ALREADY_EXISTS", error.getCode());
     }
 
@@ -133,11 +116,11 @@ class WorkspaceCaseTest {
         // Given 一个文件路径而非目录
         Path file = workspaceRoot.resolve("pom.xml");
         Files.writeString(file, "<project/>");
-        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository(), new AgentRuntimeProperties());
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository());
 
         // When / Then 注册被拒绝
         AppException error = assertThrows(AppException.class,
-                () -> createCase.create(new CreateWorkspaceRequestDTO("file", file.toString(), null)));
+                () -> createCase.create(new CreateWorkspaceRequestDTO("file", file.toString())));
         assertEquals("WORKSPACE_PATH_INVALID", error.getCode());
     }
 

@@ -1,6 +1,5 @@
 package cn.noname.coder.agent.infrastructure.tools;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceCapability;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.infrastructure.adapter.port.WorkspacePort;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
@@ -10,8 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class SafeEditingToolTest {
@@ -64,10 +61,49 @@ class SafeEditingToolTest {
                 "{\"path\":\"docs/note.md\",\"content\":\"again\"}").status());
     }
 
+    @Test
+    void shouldOverwriteExistingTextFileAndRejectProtectedPath() throws Exception {
+        // Given workspace 内已有文本文件
+        Path file = workspaceRoot.resolve("README.md");
+        Files.writeString(file, "old");
+        OverwriteFileTool tool = new OverwriteFileTool(new WorkspacePort(new AgentRuntimeProperties()), new ProtectedPathPolicy());
+
+        // When 覆盖文件 / Then 记录 OVERWRITE 变更和前后 hash
+        var result = tool.execute("run_1", workspace(), "{\"path\":\"README.md\",\"content\":\"new\"}");
+        assertEquals(CallStatus.SUCCESS, result.status());
+        assertEquals("new", Files.readString(file));
+        assertEquals("OVERWRITE", result.changedFiles().getFirst().changeType());
+        assertNotNull(result.changedFiles().getFirst().beforeHash());
+        assertNotNull(result.changedFiles().getFirst().afterHash());
+
+        // Then 受保护路径和目录覆盖被拒绝
+        assertEquals(CallStatus.REJECTED, tool.execute("run_1", workspace(),
+                "{\"path\":\".env\",\"content\":\"SECRET=1\"}").status());
+        assertEquals(CallStatus.REJECTED, tool.execute("run_1", workspace(),
+                "{\"path\":\".\",\"content\":\"x\"}").status());
+    }
+
+    @Test
+    void shouldDeleteExistingTextFileAndRejectDirectory() throws Exception {
+        // Given workspace 内已有文本文件
+        Path file = workspaceRoot.resolve("docs/delete-me.md");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "delete me");
+        DeleteFileTool tool = new DeleteFileTool(new WorkspacePort(new AgentRuntimeProperties()), new ProtectedPathPolicy());
+
+        // When 删除文件 / Then 记录 DELETE 变更并保留 beforeContent
+        var result = tool.execute("run_1", workspace(), "{\"path\":\"docs/delete-me.md\"}");
+        assertEquals(CallStatus.SUCCESS, result.status());
+        assertFalse(Files.exists(file));
+        assertEquals("DELETE", result.changedFiles().getFirst().changeType());
+        assertEquals("delete me", result.changedFiles().getFirst().beforeContent());
+
+        // Then 删除目录被拒绝
+        assertEquals(CallStatus.REJECTED, tool.execute("run_1", workspace(),
+                "{\"path\":\"docs\"}").status());
+    }
+
     private WorkspaceDescriptor workspace() {
-        return new WorkspaceDescriptor("repo", workspaceRoot, List.of(
-                WorkspaceCapability.READ_REPOSITORY,
-                WorkspaceCapability.ADD_FILE,
-                WorkspaceCapability.MODIFY_FILE));
+        return new WorkspaceDescriptor("repo", workspaceRoot);
     }
 }

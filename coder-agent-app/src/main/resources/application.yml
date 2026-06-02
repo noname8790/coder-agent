@@ -75,6 +75,9 @@ coder-agent:
       - git status
       - git diff
       - git log
+      - git checkout -b
+      - git add
+      - git commit
       - mvn test
       - mvn -q test
       - mvn clean test

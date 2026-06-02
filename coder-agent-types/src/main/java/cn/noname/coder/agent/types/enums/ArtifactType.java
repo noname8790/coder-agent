@@ -12,5 +12,8 @@ public enum ArtifactType {
     PATCH_DIFF,
     CHANGED_FILES,
     TEST_REPORT,
-    REVIEW_SUMMARY
+    REVIEW_SUMMARY,
+    PR_DRAFT,
+    ROLLBACK_PATCH,
+    FILE_BACKUP
 }

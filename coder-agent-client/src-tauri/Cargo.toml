@@ -1,0 +1,18 @@
+[package]
+name = "coder-agent-client"
+version = "0.3.0"
+description = "coder-agent desktop client"
+authors = ["noname"]
+edition = "2021"
+
+[lib]
+name = "coder_agent_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.2.0", features = [] }
+
+[dependencies]
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.5.0", features = [] }

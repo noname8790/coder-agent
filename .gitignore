@@ -5,3 +5,9 @@ target/
 .env
 .env.*
 sandbox-projects/
+coder-agent-client/node_modules/
+coder-agent-client/dist/
+coder-agent-client/src-tauri/target/
+coder-agent-client/src-tauri/gen/schemas/
+coder-agent-backend.log
+coder-agent-client/coder-agent-backend.log

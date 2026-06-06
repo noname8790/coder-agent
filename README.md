@@ -101,6 +101,56 @@ java -jar coder-agent-app\target\coder-agent.jar
 
 首版 Shell 工具只支持 Windows PowerShell。
 
+## 客户端
+
+第三版新增桌面客户端模块：
+
+```text
+coder-agent-client/
+```
+
+技术栈：
+
+- Tauri 2
+- React 18
+- TypeScript
+- Vite
+
+开发预览：
+
+```powershell
+cd coder-agent-client
+npm install
+npm run dev
+```
+
+前端验证：
+
+```powershell
+cd coder-agent-client
+npm test
+npm run build
+```
+
+Tauri 原生打包需要本机安装 Rust/Cargo：
+
+```powershell
+cd coder-agent-client
+npm run tauri build
+```
+
+客户端默认连接 `http://127.0.0.1:8080`，也支持在界面右侧修改后端地址。Tauri 桌面环境会自动检测后端状态，离线时尝试通过本地命令启动 `java -jar`，关闭客户端窗口时会停止由本客户端托管的后端进程。浏览器预览模式只保留连接已有后端。
+
+客户端覆盖：
+
+- workspace 创建、列表、停用
+- 会话创建、列表、消息历史
+- 模型选择：`glm-5`、`qwen3.6-plus`、`deepseek-v4-flash`
+- 权限等级选择和风险提示
+- Agent Run 创建、取消、刷新
+- SSE 运行事件订阅，用于驱动运行中状态同步和临时消息进度
+- 运行详情、工件列表、测试状态、commit hash、PR 草稿和 rollback 材料路径展示
+
 ## API 示例
 
 注册 workspace：

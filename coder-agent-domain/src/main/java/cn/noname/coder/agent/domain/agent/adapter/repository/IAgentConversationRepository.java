@@ -20,7 +20,19 @@ public interface IAgentConversationRepository {
 
     List<AgentConversation> listConversations(String workspaceKey);
 
+    void deleteConversation(String conversationId);
+
     void saveMessage(AgentMessage message);
+
+    Optional<AgentMessage> findMessage(String messageId);
+
+    void updateMessage(AgentMessage message);
+
+    void deleteMessage(String messageId);
+
+    void deleteAgentMessagesByRunId(String runId);
+
+    void deleteMessagesByRunId(String runId);
 
     List<AgentMessage> listMessages(String conversationId);
 

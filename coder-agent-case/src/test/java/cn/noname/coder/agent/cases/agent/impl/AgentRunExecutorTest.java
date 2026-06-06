@@ -40,7 +40,7 @@ class AgentRunExecutorTest {
                 new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
 
         // When 创建运行
-        var response = createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "glm-5"));
+        var response = createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "glm-5", null, null, null));
 
         // Then 保存模型 key
         AgentRun saved = runRepository.findByRunId(response.runId()).orElseThrow();
@@ -60,7 +60,7 @@ class AgentRunExecutorTest {
 
         // When 创建运行 / Then 拒绝且不写入 agent_run
         AppException ex = assertThrows(AppException.class, () ->
-                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "unknown")));
+                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "unknown", null, null, null)));
         assertEquals("MODEL_NOT_CONFIGURED", ex.getCode());
         assertEquals(0, runRepository.runs.size());
     }
@@ -152,6 +152,51 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldSaveCancellationFeedbackGivenRunCancelled() {
+        // Given 带对话的运行在模型调用期间被取消
+        InMemoryRunRepository runRepository = new InMemoryRunRepository();
+        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
+        InMemoryConversationRepository conversationRepository = new InMemoryConversationRepository();
+        AgentRun run = newRun("run_cancel_message", 20, 8, 16, 300);
+        run.setConversationId("conv_1");
+        runRepository.save(run);
+        AgentRunExecutor executor = new AgentRunExecutor(runRepository, recordRepository, conversationRepository,
+                new StubWorkspacePort(false), new StubModelConfigPort(), request -> {
+            runRepository.cancel(request.runId());
+            return new ModelResponse("resp_1", "不应保存", List.of(), "final");
+        }, new NoopToolGateway(), new StubArtifactPort(), new NoopEventPublisher(), new AgentRuntimeProperties());
+
+        // When 执行 Agent 循环
+        executor.execute(run.getRunId());
+
+        // Then 取消会生成一条可展示的 Agent 反馈，避免前端最终消息消失
+        assertEquals(AgentRunStatus.CANCELLED, runRepository.findByRunId(run.getRunId()).orElseThrow().getStatus());
+        assertEquals(1, conversationRepository.messages.size());
+        assertEquals("任务已取消", conversationRepository.messages.getFirst().getContent());
+    }
+
+    @Test
+    void shouldFailGivenModelRequestsToolButToolBudgetIsExhausted() {
+        // Given 模型请求工具，但工具预算为 0
+        InMemoryRunRepository runRepository = new InMemoryRunRepository();
+        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
+        AgentRun run = newRun("run_tool_budget_zero", 20, 8, 0, 300);
+        runRepository.save(run);
+        AgentRunExecutor executor = executor(runRepository, recordRepository,
+                request -> new ModelResponse("resp_1", null,
+                        List.of(new ToolInvocation("tool_1", "list_files", "{}")), "tool call"),
+                new NoopToolGateway(), new StubArtifactPort(), false);
+
+        // When 执行 Agent 循环
+        executor.execute(run.getRunId());
+
+        // Then 运行必须进入终态，不能停留在 RUNNING
+        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
+        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
+        assertTrue(saved.getFailureReason().contains("工具"));
+    }
+
+    @Test
     void shouldFailGivenModelGatewayThrowsException() {
         // Given 模型网关异常
         InMemoryRunRepository runRepository = new InMemoryRunRepository();
@@ -175,6 +220,28 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldFailGivenModelGatewayThrowsError() {
+        // Given 模型网关抛出 Error，模拟后台线程非 Exception 异常
+        InMemoryRunRepository runRepository = new InMemoryRunRepository();
+        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
+        AgentRun run = newRun("run_error", 20, 8, 16, 300);
+        runRepository.save(run);
+        AgentRunExecutor executor = executor(runRepository, recordRepository,
+                request -> {
+                    throw new AssertionError("fatal model error");
+                },
+                new NoopToolGateway(), new StubArtifactPort(), false);
+
+        // When 执行 Agent 循环
+        assertDoesNotThrow(() -> executor.execute(run.getRunId()));
+
+        // Then 运行不能停留在 RUNNING
+        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
+        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
+        assertTrue(saved.getFailureReason().contains("fatal model error"));
+    }
+
+    @Test
     void shouldRejectCreateRunGivenConcurrentLimitReached() {
         // Given 当前已达到并发上限
         InMemoryRunRepository runRepository = new InMemoryRunRepository();
@@ -191,7 +258,7 @@ class AgentRunExecutorTest {
 
         // When 创建新运行 / Then 返回并发限制错误
         AppException ex = assertThrows(AppException.class, () ->
-                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", null)));
+                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", null, null, null, null)));
         assertEquals("CONCURRENT_LIMIT", ex.getCode());
     }
 
@@ -293,6 +360,7 @@ class AgentRunExecutorTest {
                     .task(run.getTask())
                     .model(run.getModel())
                     .permissionLevel(run.getPermissionLevel())
+                    .sourceMessageId(run.getSourceMessageId())
                     .status(run.getStatus())
                     .finalAnswer(run.getFinalAnswer())
                     .failureReason(run.getFailureReason())
@@ -382,8 +450,39 @@ class AgentRunExecutorTest {
         }
 
         @Override
+        public void deleteConversation(String conversationId) {
+            conversations.remove(conversationId);
+        }
+
+        @Override
         public void saveMessage(AgentMessage message) {
             messages.add(message);
+        }
+
+        @Override
+        public Optional<AgentMessage> findMessage(String messageId) {
+            return messages.stream().filter(v -> messageId.equals(v.getMessageId())).findFirst();
+        }
+
+        @Override
+        public void updateMessage(AgentMessage message) {
+            deleteMessage(message.getMessageId());
+            messages.add(message);
+        }
+
+        @Override
+        public void deleteMessage(String messageId) {
+            messages.removeIf(v -> messageId.equals(v.getMessageId()));
+        }
+
+        @Override
+        public void deleteAgentMessagesByRunId(String runId) {
+            messages.removeIf(v -> runId != null && runId.equals(v.getRunId()) && "AGENT".equals(v.getRole()));
+        }
+
+        @Override
+        public void deleteMessagesByRunId(String runId) {
+            messages.removeIf(v -> runId != null && runId.equals(v.getRunId()));
         }
 
         @Override

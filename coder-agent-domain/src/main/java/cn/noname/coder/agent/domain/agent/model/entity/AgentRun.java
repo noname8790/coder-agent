@@ -25,6 +25,7 @@ public class AgentRun {
     private String task;
     private String model;
     private AgentPermissionLevel permissionLevel;
+    private String sourceMessageId;
     private AgentRunStatus status;
     private String finalAnswer;
     private String failureReason;

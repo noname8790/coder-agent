@@ -95,8 +95,8 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         log.info("创建 Agent 运行 runId={} workspaceKey={} conversationId={} model={} actualModel={} permissionLevel={}",
                 run.getRunId(), run.getWorkspaceKey(), run.getConversationId(), modelConfig.modelKey(), modelConfig.actualModel(), permissionLevel);
         log.info("Agent 权限等级 runId={} permissionLevel={}", run.getRunId(), permissionLevel);
-        runRepository.save(run);
         saveUserMessageAndAudit(run, conversation, permissionLevel);
+        runRepository.save(run);
         artifactPort.initializeRun(workspace, run).forEach(recordRepository::saveArtifact);
         taskExecutor.execute(() -> agentRunExecutor.execute(run.getRunId()));
         log.info("Agent 运行已提交后台执行 runId={}", run.getRunId());
@@ -155,6 +155,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                 .task(request.task())
                 .model(modelKey)
                 .permissionLevel(permissionLevel)
+                .sourceMessageId(request.sourceMessageId())
                 .status(AgentRunStatus.CREATED)
                 .maxSteps(budget.getMaxSteps())
                 .maxModelCalls(budget.getMaxModelCalls())
@@ -169,14 +170,29 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
 
     private void saveUserMessageAndAudit(AgentRun run, AgentConversation conversation, AgentPermissionLevel permissionLevel) {
         if (conversation != null) {
-            conversationRepository.saveMessage(AgentMessage.builder()
-                    .messageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
-                    .conversationId(conversation.getConversationId())
-                    .runId(run.getRunId())
-                    .role("USER")
-                    .content(run.getTask())
-                    .createdAt(LocalDateTime.now())
-                    .build());
+            if (StringUtils.hasText(run.getSourceMessageId())) {
+                AgentMessage source = conversationRepository.findMessage(run.getSourceMessageId())
+                        .orElseThrow(() -> new AppException("MESSAGE_NOT_FOUND", "消息不存在：" + run.getSourceMessageId()));
+                if (!conversation.getConversationId().equals(source.getConversationId()) || !"USER".equals(source.getRole())) {
+                    throw new AppException("MESSAGE_NOT_EDITABLE", "只能基于当前会话的用户消息重新运行");
+                }
+                String oldRunId = source.getRunId();
+                source.setRunId(run.getRunId());
+                source.setContent(run.getTask());
+                conversationRepository.updateMessage(source);
+                conversationRepository.deleteAgentMessagesByRunId(oldRunId);
+                log.info("复用用户消息创建 Agent 运行 runId={} conversationId={} sourceMessageId={} oldRunId={}",
+                        run.getRunId(), conversation.getConversationId(), source.getMessageId(), oldRunId);
+            } else {
+                conversationRepository.saveMessage(AgentMessage.builder()
+                        .messageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
+                        .conversationId(conversation.getConversationId())
+                        .runId(run.getRunId())
+                        .role("USER")
+                        .content(run.getTask())
+                        .createdAt(LocalDateTime.now())
+                        .build());
+            }
             conversation.setUpdatedAt(LocalDateTime.now());
             conversationRepository.updateConversation(conversation);
         }

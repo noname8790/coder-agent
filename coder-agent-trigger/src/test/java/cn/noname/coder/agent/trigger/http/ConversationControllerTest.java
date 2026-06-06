@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -59,6 +60,46 @@ class ConversationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].role").value("USER"))
                 .andExpect(jsonPath("$.data[1].role").value("AGENT"));
+    }
+
+    @Test
+    void shouldDeleteConversationGivenConversationId() throws Exception {
+        // Given 会话存在
+        when(conversationCase.delete("conv_1")).thenReturn(conversation());
+
+        // When 删除会话 / Then 返回被删除的会话并调用删除用例
+        mockMvc.perform(delete("/api/conversations/conv_1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.conversationId").value("conv_1"));
+        verify(conversationCase).delete("conv_1");
+    }
+
+    @Test
+    void shouldUpdateUserMessageGivenMessageId() throws Exception {
+        // Given 用户消息存在
+        when(conversationCase.updateMessage(any(), any(), any())).thenReturn(
+                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "修改后的任务", LocalDateTime.now()));
+
+        // When 修改消息 / Then 返回更新后的内容
+        mockMvc.perform(put("/api/conversations/conv_1/messages/msg_1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"修改后的任务\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("修改后的任务"));
+        verify(conversationCase).updateMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldDeleteMessageGivenMessageId() throws Exception {
+        // Given 消息存在
+        when(conversationCase.deleteMessage("conv_1", "msg_1")).thenReturn(
+                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "任务", LocalDateTime.now()));
+
+        // When 删除消息 / Then 返回被删除消息
+        mockMvc.perform(delete("/api/conversations/conv_1/messages/msg_1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messageId").value("msg_1"));
+        verify(conversationCase).deleteMessage("conv_1", "msg_1");
     }
 
     private ConversationResponseDTO conversation() {

@@ -60,6 +60,12 @@ public class AgentConversationRepository implements IAgentConversationRepository
     }
 
     @Override
+    public void deleteConversation(String conversationId) {
+        conversationDao.delete(new LambdaQueryWrapper<AgentConversationPO>()
+                .eq(AgentConversationPO::getConversationId, conversationId));
+    }
+
+    @Override
     public void saveMessage(AgentMessage message) {
         AgentMessagePO po = new AgentMessagePO();
         po.setMessageId(message.getMessageId());
@@ -73,20 +79,57 @@ public class AgentConversationRepository implements IAgentConversationRepository
     }
 
     @Override
+    public Optional<AgentMessage> findMessage(String messageId) {
+        AgentMessagePO po = messageDao.selectOne(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getMessageId, messageId));
+        return Optional.ofNullable(po).map(this::toMessageEntity);
+    }
+
+    @Override
+    public void updateMessage(AgentMessage message) {
+        AgentMessagePO po = new AgentMessagePO();
+        po.setId(message.getId());
+        po.setMessageId(message.getMessageId());
+        po.setConversationId(message.getConversationId());
+        po.setRunId(message.getRunId());
+        po.setRole(message.getRole());
+        po.setContent(message.getContent());
+        po.setCreatedAt(message.getCreatedAt());
+        messageDao.updateById(po);
+    }
+
+    @Override
+    public void deleteMessage(String messageId) {
+        messageDao.delete(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getMessageId, messageId));
+    }
+
+    @Override
+    public void deleteAgentMessagesByRunId(String runId) {
+        if (!StringUtils.hasText(runId)) {
+            return;
+        }
+        messageDao.delete(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getRunId, runId)
+                .eq(AgentMessagePO::getRole, "AGENT"));
+    }
+
+    @Override
+    public void deleteMessagesByRunId(String runId) {
+        if (!StringUtils.hasText(runId)) {
+            return;
+        }
+        messageDao.delete(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getRunId, runId));
+    }
+
+    @Override
     public List<AgentMessage> listMessages(String conversationId) {
         return messageDao.selectList(new LambdaQueryWrapper<AgentMessagePO>()
                         .eq(AgentMessagePO::getConversationId, conversationId)
                         .orderByAsc(AgentMessagePO::getCreatedAt))
                 .stream()
-                .map(po -> AgentMessage.builder()
-                        .id(po.getId())
-                        .messageId(po.getMessageId())
-                        .conversationId(po.getConversationId())
-                        .runId(po.getRunId())
-                        .role(po.getRole())
-                        .content(po.getContent())
-                        .createdAt(po.getCreatedAt())
-                        .build())
+                .map(this::toMessageEntity)
                 .toList();
     }
 
@@ -127,6 +170,18 @@ public class AgentConversationRepository implements IAgentConversationRepository
                 .defaultPermissionLevel(AgentPermissionLevel.parse(po.getDefaultPermissionLevel()))
                 .createdAt(po.getCreatedAt())
                 .updatedAt(po.getUpdatedAt())
+                .build();
+    }
+
+    private AgentMessage toMessageEntity(AgentMessagePO po) {
+        return AgentMessage.builder()
+                .id(po.getId())
+                .messageId(po.getMessageId())
+                .conversationId(po.getConversationId())
+                .runId(po.getRunId())
+                .role(po.getRole())
+                .content(po.getContent())
+                .createdAt(po.getCreatedAt())
                 .build();
     }
 }

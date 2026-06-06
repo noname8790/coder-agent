@@ -3,6 +3,7 @@ package cn.noname.coder.agent.cases.conversation;
 import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
+import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
 
 import java.util.List;
 
@@ -18,4 +19,10 @@ public interface IConversationCase {
     ConversationResponseDTO query(String conversationId);
 
     List<ConversationMessageDTO> messages(String conversationId);
+
+    ConversationResponseDTO delete(String conversationId);
+
+    ConversationMessageDTO updateMessage(String conversationId, String messageId, UpdateConversationMessageRequestDTO request);
+
+    ConversationMessageDTO deleteMessage(String conversationId, String messageId);
 }

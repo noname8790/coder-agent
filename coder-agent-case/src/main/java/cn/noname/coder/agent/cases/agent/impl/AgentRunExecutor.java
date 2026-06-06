@@ -69,7 +69,13 @@ public class AgentRunExecutor {
 
     public void execute(String runId) {
         AgentRun run = runRepository.findByRunId(runId).orElse(null);
-        if (run == null || run.getStatus().isTerminal()) {
+        if (run == null) {
+            return;
+        }
+        if (run.getStatus().isTerminal()) {
+            if (run.getStatus() == AgentRunStatus.CANCELLED) {
+                saveAgentMessage(run);
+            }
             return;
         }
         WorkspaceDescriptor workspace = workspacePort.resolve(run.getWorkspaceKey()).orElse(null);
@@ -122,17 +128,22 @@ public class AgentRunExecutor {
                 }
                 runRepository.update(run);
             }
-        } catch (Exception e) {
-            log.error("Agent 运行失败 runId={}", runId, e);
-            domainService.fail(run, abbreviate(e.getMessage(), 1000));
-            runRepository.update(run);
-            saveAgentMessage(run);
-            writeFinal(workspace, run, editState);
-            recordAudit(runId, AuditEventType.MODEL_CALL_FAILED, "Agent 执行异常", e.getMessage());
-            trace(workspace, runId, AgentRunEventType.RUN_FINISHED.code(), Map.of(
-                    "status", run.getStatus().name(),
-                    "reason", abbreviate(e.getMessage(), 1000)));
+        } catch (Throwable e) {
+            failRun(run, workspace, editState, e);
         }
+    }
+
+    private void failRun(AgentRun run, WorkspaceDescriptor workspace, RunEditState editState, Throwable e) {
+        String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        log.error("Agent 运行失败 runId={}", run.getRunId(), e);
+        domainService.fail(run, abbreviate(reason, 1000));
+        runRepository.update(run);
+        saveAgentMessage(run);
+        writeFinal(workspace, run, editState);
+        recordAudit(run.getRunId(), AuditEventType.MODEL_CALL_FAILED, "Agent 执行异常", reason);
+        trace(workspace, run.getRunId(), AgentRunEventType.RUN_FINISHED.code(), Map.of(
+                "status", run.getStatus().name(),
+                "reason", abbreviate(reason, 1000)));
     }
 
     private boolean checkBudget(AgentRun run, LocalDateTime deadline, WorkspaceDescriptor workspace, RunEditState editState) {
@@ -150,6 +161,7 @@ public class AgentRunExecutor {
             if (current.getStatus() == AgentRunStatus.CANCELLED) {
                 run.setStatus(AgentRunStatus.CANCELLED);
                 runRepository.update(run);
+                saveAgentMessage(run);
                 writeFinal(workspace, run, editState);
                 trace(workspace, run.getRunId(), AgentRunEventType.RUN_FINISHED.code(), Map.of("status", "CANCELLED", "reason", "用户取消"));
                 return false;
@@ -161,6 +173,7 @@ public class AgentRunExecutor {
         log.warn("Agent 运行预算耗尽 runId={} reason={}", run.getRunId(), reason);
         domainService.fail(run, reason);
         runRepository.update(run);
+        saveAgentMessage(run);
         writeFinal(workspace, run, editState);
         recordAudit(run.getRunId(), AuditEventType.BUDGET_EXHAUSTED, "预算耗尽", reason);
         trace(workspace, run.getRunId(), AgentRunEventType.AUDIT_EVENT.code(), Map.of("reason", reason));
@@ -182,6 +195,7 @@ public class AgentRunExecutor {
             domainService.cancel(run);
         }
         runRepository.update(run);
+        saveAgentMessage(run);
         writeFinal(workspace, run, editState);
         trace(workspace, run.getRunId(), AgentRunEventType.RUN_FINISHED.code(), Map.of("status", "CANCELLED", "reason", "用户取消", "checkpoint", checkpoint));
         log.info("Agent 运行已取消 runId={} checkpoint={}", run.getRunId(), checkpoint);
@@ -413,9 +427,16 @@ public class AgentRunExecutor {
         if (run.getConversationId() == null || run.getConversationId().isBlank()) {
             return;
         }
+        conversationRepository.deleteAgentMessagesByRunId(run.getRunId());
         String content = run.getFinalAnswer();
         if (content == null || content.isBlank()) {
-            content = run.getFailureReason() == null ? "运行结束：" + run.getStatus() : "运行失败：" + run.getFailureReason();
+            if (run.getStatus() == AgentRunStatus.CANCELLED) {
+                content = "\u4efb\u52a1\u5df2\u53d6\u6d88";
+            } else {
+                content = run.getFailureReason() == null
+                        ? "\u8fd0\u884c\u7ed3\u675f\uff1a" + run.getStatus()
+                        : "\u8fd0\u884c\u5931\u8d25\uff1a" + run.getFailureReason();
+            }
         }
         conversationRepository.saveMessage(AgentMessage.builder()
                 .messageId("msg_" + java.util.UUID.randomUUID().toString().replace("-", ""))
@@ -426,7 +447,6 @@ public class AgentRunExecutor {
                 .createdAt(LocalDateTime.now())
                 .build());
     }
-
     private String testStatus(RunEditState editState) {
         if (editState.testReports.isEmpty()) {
             return "NOT_RUN";

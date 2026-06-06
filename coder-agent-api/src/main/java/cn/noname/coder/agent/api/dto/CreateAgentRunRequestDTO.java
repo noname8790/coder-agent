@@ -7,9 +7,6 @@ public record CreateAgentRunRequestDTO(String workspaceKey,
                                        String task,
                                        String model,
                                        String conversationId,
-                                       String permissionLevel) {
-
-    public CreateAgentRunRequestDTO(String workspaceKey, String task, String model) {
-        this(workspaceKey, task, model, null, null);
-    }
+                                       String permissionLevel,
+                                       String sourceMessageId) {
 }

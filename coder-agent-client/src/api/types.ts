@@ -34,6 +34,7 @@ export type ConversationMessage = {
   role: "USER" | "AGENT" | "SYSTEM" | string;
   content: string;
   status?: string;
+  failureReason?: string;
   progress?: string;
   transient?: boolean;
   createdAt?: string;
@@ -72,11 +73,93 @@ export type AgentRun = {
   stepCount?: number;
   modelCallCount?: number;
   toolCallCount?: number;
+  rawContextTokens?: number;
+  finalContextTokens?: number;
+  contextCompressionRatio?: number;
+  memoryHitCount?: number;
+  staleMemoryCount?: number;
+  selectedFileSummaryCount?: number;
+  selectedRawSnippetCount?: number;
+  latestContextSnapshotPath?: string;
   durationMs?: number;
   createdAt?: string;
   startedAt?: string;
   endedAt?: string;
   artifacts?: RunArtifact[];
+};
+
+export type AgentRunDraft = {
+  runId: string;
+  content: string;
+  status?: string;
+  failureReason?: string;
+  updatedAt?: string;
+};
+
+export type ContextBudget = {
+  maxContextTokens?: number;
+  maxOutputTokens?: number;
+  inputBudgetTokens?: number;
+  memoryBudgetTokens?: number;
+  fileSummaryBudgetTokens?: number;
+  rawFileBudgetTokens?: number;
+  toolResultBudgetTokens?: number;
+  recentMessageBudgetTokens?: number;
+};
+
+export type ModelProvider = {
+  modelKey: string;
+  displayName: string;
+  provider: string;
+  baseUrl: string;
+  apiKeyMasked?: string;
+  modelName: string;
+  endpointType: "chat-completions" | "responses" | string;
+  timeoutSeconds?: number;
+  temperature?: number;
+  streamingEnabled: boolean;
+  toolCallingEnabled: boolean;
+  status: string;
+  defaultModel: boolean;
+  budget?: ContextBudget;
+};
+
+export type ModelProviderList = {
+  models: ModelProvider[];
+};
+
+export type ModelProviderPayload = {
+  modelKey: string;
+  displayName: string;
+  provider?: string;
+  baseUrl: string;
+  apiKey?: string;
+  modelName: string;
+  endpointType: string;
+  timeoutSeconds?: number;
+  temperature?: number;
+  streamingEnabled?: boolean;
+  toolCallingEnabled?: boolean;
+  defaultModel?: boolean;
+  budget?: ContextBudget;
+};
+
+export type ToolApproval = {
+  approvalId: string;
+  runId: string;
+  workspaceKey: string;
+  toolName: string;
+  argumentsJson: string;
+  riskSummary: string;
+  diffSummary?: string;
+  status: string;
+  requestedAt?: string;
+  decidedAt?: string;
+  decisionReason?: string;
+};
+
+export type ToolApprovalList = {
+  approvals: ToolApproval[];
 };
 
 export type CreateRunPayload = {

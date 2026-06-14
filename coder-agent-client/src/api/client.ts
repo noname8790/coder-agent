@@ -1,12 +1,17 @@
 import type {
   AgentRun,
+  AgentRunDraft,
   ApiResponse,
   BackendProcessStatus,
   Conversation,
   ConversationMessage,
   CreateRunPayload,
   CreateRunResponse,
+  ModelProvider,
+  ModelProviderList,
+  ModelProviderPayload,
   PermissionLevel,
+  ToolApprovalList,
   TraceQueryResponse,
   Workspace,
   WorkspaceList
@@ -82,17 +87,49 @@ export function createApi(baseUrl: string) {
         { method: "DELETE" }
       ),
     listPermissionLevels: () => request<PermissionLevel[]>(baseUrl, "/api/permission-levels"),
+    listModelProviders: (enabledOnly = true) =>
+      request<ModelProviderList>(baseUrl, `/api/model-providers?enabledOnly=${enabledOnly}`),
+    createModelProvider: (payload: ModelProviderPayload) =>
+      request<ModelProvider>(baseUrl, "/api/model-providers", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }),
+    updateModelProvider: (modelKey: string, payload: ModelProviderPayload) =>
+      request<ModelProvider>(baseUrl, `/api/model-providers/${encodeURIComponent(modelKey)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      }),
+    deleteModelProvider: (modelKey: string) =>
+      request<ModelProvider>(baseUrl, `/api/model-providers/${encodeURIComponent(modelKey)}`, { method: "DELETE" }),
+    enableModelProvider: (modelKey: string) =>
+      request<ModelProvider>(baseUrl, `/api/model-providers/${encodeURIComponent(modelKey)}/enable`, { method: "POST" }),
+    setDefaultModelProvider: (modelKey: string) =>
+      request<ModelProvider>(baseUrl, `/api/model-providers/${encodeURIComponent(modelKey)}/default`, { method: "POST" }),
     createRun: (payload: CreateRunPayload) =>
       request<CreateRunResponse>(baseUrl, "/api/agent-runs", {
         method: "POST",
         body: JSON.stringify(payload)
       }),
     getRun: (runId: string) => request<AgentRun>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}`),
+    getRunDraft: (runId: string) =>
+      request<AgentRunDraft>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/draft`),
     getTrace: (runId: string) =>
       request<TraceQueryResponse>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/trace`),
     cancelRun: (runId: string) =>
       request<{ runId: string; status: string }>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/cancel`, {
         method: "POST"
+      }),
+    listPendingApprovals: (runId: string) =>
+      request<ToolApprovalList>(baseUrl, `/api/tool-approvals/pending/${encodeURIComponent(runId)}`),
+    approveToolApproval: (approvalId: string, reason?: string) =>
+      request(baseUrl, `/api/tool-approvals/${encodeURIComponent(approvalId)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ reason })
+      }),
+    rejectToolApproval: (approvalId: string, reason?: string) =>
+      request(baseUrl, `/api/tool-approvals/${encodeURIComponent(approvalId)}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason })
       })
   };
 }

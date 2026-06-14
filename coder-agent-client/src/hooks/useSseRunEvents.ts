@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { normalizeBaseUrl } from "../api/client";
 import type { AgentRunEvent } from "../api/types";
 
@@ -6,10 +6,12 @@ export function useSseRunEvents(baseUrl: string, runId?: string) {
   const [events, setEvents] = useState<AgentRunEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setEvents([]);
     setError(null);
+    seenEventIdsRef.current.clear();
     if (!runId) {
       setConnected(false);
       return;
@@ -28,8 +30,13 @@ export function useSseRunEvents(baseUrl: string, runId?: string) {
     const eventTypes = [
       "run_created",
       "run_started",
+      "assistant_message_started",
+      "assistant_delta",
+      "assistant_message_completed",
+      "assistant_message_cancelled",
       "model_call_started",
       "model_call_completed",
+      "model_stream_failure",
       "tool_call_started",
       "tool_call_completed",
       "file_changed",
@@ -41,8 +48,21 @@ export function useSseRunEvents(baseUrl: string, runId?: string) {
     ];
     const append = (message: MessageEvent) => {
       try {
-        setEvents((current) => [...current, JSON.parse(message.data) as AgentRunEvent].slice(-300));
+        const event = JSON.parse(message.data) as AgentRunEvent;
+        const eventId = event.eventId || message.lastEventId;
+        if (eventId && seenEventIdsRef.current.has(eventId)) {
+          return;
+        }
+        if (eventId) {
+          seenEventIdsRef.current.add(eventId);
+        }
+        setEvents((current) => [...current, event].slice(-300));
       } catch {
+        const eventId = message.lastEventId || `${message.type}:${message.data}`;
+        if (seenEventIdsRef.current.has(eventId)) {
+          return;
+        }
+        seenEventIdsRef.current.add(eventId);
         setEvents((current) => [
           ...current,
           { eventId: String(Date.now()), runId, type: message.type || "message", payload: { raw: message.data } }

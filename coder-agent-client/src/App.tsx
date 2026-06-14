@@ -20,24 +20,30 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { createApi, normalizeBaseUrl, selectWorkspaceDirectory, startBackend } from "./api/client";
 import type {
   AgentRun,
   Conversation,
   ConversationMessage,
+  ModelProvider,
+  ModelProviderPayload,
   PermissionLevel,
+  ToolApproval,
   Workspace
 } from "./api/types";
 import { useSseRunEvents } from "./hooks/useSseRunEvents";
 import {
+  applyRunEventToTransientMessage,
   buildTransientAgentMessage,
   isStatusOnlyAgentMessage,
   isTerminalRunStatus
 } from "./messageState";
 import { workspaceKeyFromPath } from "./workspace";
 
-const MODEL_OPTIONS = ["glm-5", "qwen3.6-plus", "deepseek-v4-flash"];
 const STORAGE_KEY = "coder-agent-client-settings";
+const THINKING_TEXT = "思考中...";
+const RUNNING_TEXT = "正在运行...";
 
 type SettingsState = {
   baseUrl: string;
@@ -72,11 +78,55 @@ function statusLabel(status?: string) {
   const map: Record<string, string> = {
     CREATED: "已创建",
     RUNNING: "运行中",
+    WAITING_APPROVAL: "等待审批",
     SUCCEEDED: "成功",
     FAILED: "失败",
     CANCELLED: "已取消"
   };
   return status ? map[status] || status : "未运行";
+}
+
+function stripThinking(content?: string) {
+  const value = content || "";
+  return value.endsWith(THINKING_TEXT) ? value.slice(0, -THINKING_TEXT.length).trimEnd() : value;
+}
+
+function appendThinking(content?: string) {
+  const value = stripThinking(content);
+  return value ? `${value}\n\n${THINKING_TEXT}` : THINKING_TEXT;
+}
+
+function terminalLine(status: string, reason?: string) {
+  const normalized = status.toUpperCase();
+  if (normalized === "CANCELLED" || normalized === "CANCELED") {
+    return "已取消";
+  }
+  if (normalized === "FAILED" || normalized === "FAILURE") {
+    return `运行失败：${reason || "未知原因"}`;
+  }
+  return "";
+}
+
+function renderMessageContent(content: string, terminal?: string) {
+  const markers = ["\n\n已取消", "\n\n任务已取消", "\n\n运行失败："];
+  const matchedMarker = markers.find((marker) => content.includes(marker));
+  let body = content;
+  let terminalText = terminal || "";
+  if (matchedMarker) {
+    const markerStart = content.lastIndexOf(matchedMarker);
+    body = content.slice(0, markerStart);
+    terminalText = terminalText || content.slice(markerStart + 2);
+  }
+  return (
+    <>
+      {body ? <p>{body}</p> : null}
+      {terminalText ? (
+        <p>
+          <strong>{terminalText}</strong>
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 export function App() {
@@ -94,7 +144,26 @@ export function App() {
   const [editingContent, setEditingContent] = useState("");
   const [permissionLevels, setPermissionLevels] = useState<PermissionLevel[]>([]);
   const [permissionLevel, setPermissionLevel] = useState("L1_READ_ONLY");
-  const [model, setModel] = useState("glm-5");
+  const [modelProviders, setModelProviders] = useState<ModelProvider[]>([]);
+  const [model, setModel] = useState("");
+  const [view, setView] = useState<"chat" | "model-settings">("chat");
+  const [modelForm, setModelForm] = useState<ModelProviderPayload>({
+    modelKey: "",
+    displayName: "",
+    provider: "openai-compatible",
+    baseUrl: "",
+    apiKey: "",
+    modelName: "",
+    endpointType: "chat-completions",
+    timeoutSeconds: 120,
+    temperature: 0.2,
+    streamingEnabled: true,
+    toolCallingEnabled: true,
+    defaultModel: false,
+    budget: {}
+  });
+  const [editingModelKey, setEditingModelKey] = useState("");
+  const [pendingApprovals, setPendingApprovals] = useState<ToolApproval[]>([]);
   const [task, setTask] = useState("");
   const [workspaceForm, setWorkspaceForm] = useState({ workspaceKey: "", rootPath: "" });
   const [activeRunId, setActiveRunId] = useState<string>("");
@@ -108,23 +177,33 @@ export function App() {
   const completedRunRef = useRef("");
   const terminalSyncRef = useRef("");
   const selectedConversationRef = useRef("");
+  const processedSseEventIdsRef = useRef<Set<string>>(new Set());
+  const streamCallNoByRunRef = useRef<Record<string, string>>({});
   const api = useMemo(() => createApi(settings.baseUrl), [settings.baseUrl]);
   const sse = useSseRunEvents(settings.baseUrl, activeRunId);
   const selectedPermission = permissionLevels.find((item) => item.code === permissionLevel);
+  const hasModelCandidates = modelProviders.length > 0;
   const currentWorkspace = workspaces.find((item) => item.workspaceKey === selectedWorkspace);
   const currentConversation = conversations.find((item) => item.conversationId === selectedConversation);
   const activeInSelectedConversation =
     !!activeRunId &&
     activeRun?.conversationId === selectedConversation &&
-    (activeRun.status === "CREATED" || activeRun.status === "RUNNING");
-  const displayMessages = useMemo(
-    () => [...messages, ...transientMessages.filter((message) => message.conversationId === selectedConversation)],
-    [messages, selectedConversation, transientMessages]
-  );
+    (activeRun.status === "CREATED" || activeRun.status === "RUNNING" || activeRun.status === "WAITING_APPROVAL");
+  const displayMessages = useMemo(() => {
+    const selectedTransientMessages = transientMessages.filter((message) => message.conversationId === selectedConversation);
+    const transientKeys = new Set(selectedTransientMessages.map((message) => `${message.runId || ""}:${message.role}`));
+    const stableMessages = messages.filter((message) => !transientKeys.has(`${message.runId || ""}:${message.role}`));
+    return [...stableMessages, ...selectedTransientMessages];
+  }, [messages, selectedConversation, transientMessages]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  useEffect(() => {
+    processedSseEventIdsRef.current.clear();
+    streamCallNoByRunRef.current = {};
+  }, [activeRunId]);
 
   const saveSettings = useCallback((next: SettingsState) => {
     setSettings(next);
@@ -134,9 +213,20 @@ export function App() {
   const refreshAll = useCallback(async () => {
     setConnection("checking");
     try {
-      const [workspaceData, levels] = await Promise.all([api.listWorkspaces(), api.listPermissionLevels()]);
+      const [workspaceData, levels, providerData] = await Promise.all([
+        api.listWorkspaces(),
+        api.listPermissionLevels(),
+        api.listModelProviders(true)
+      ]);
       setWorkspaces(workspaceData.workspaces || []);
       setPermissionLevels(levels);
+      const providers = providerData.models || [];
+      setModelProviders(providers);
+      setModel((current) =>
+        providers.some((provider) => provider.modelKey === current)
+          ? current
+          : providers.find((provider) => provider.defaultModel)?.modelKey || providers[0]?.modelKey || ""
+      );
       setConnection("online");
       setBackendMessage("后端连接正常");
       initialDataLoaded.current = true;
@@ -178,15 +268,46 @@ export function App() {
     const data = await api.listMessages(conversationId);
     const visibleData = data.filter((message) => !isStatusOnlyAgentMessage(message));
     setMessages(visibleData);
-    setTransientMessages((current) =>
-      current.filter(
-        (message) =>
-          message.conversationId !== conversationId ||
-          !visibleData.some((saved) => saved.runId === message.runId && saved.role === message.role)
-      )
-    );
     setLoadedConversationId(conversationId);
   }, [api, connection, selectedConversation]);
+
+  const restoreRunDraft = useCallback(
+    async (run: AgentRun) => {
+      if (!run.runId || !run.conversationId || isTerminalRunStatus(run.status)) {
+        return;
+      }
+      const draft = await api.getRunDraft(run.runId);
+      if (selectedConversationRef.current !== run.conversationId) {
+        return;
+      }
+      setTransientMessages((current) => {
+        const messageId = `transient-agent-${run.runId}`;
+        const existing = current.find((item) => item.messageId === messageId);
+        const savedAgentMessage = messages.find(
+          (message) => message.runId === run.runId && message.conversationId === run.conversationId && message.role === "AGENT"
+        );
+        const visibleContent = draft.content || savedAgentMessage?.content || existing?.content || "";
+        const nextMessage: ConversationMessage = {
+          ...(existing ||
+            buildTransientAgentMessage({
+              runId: run.runId,
+              conversationId: run.conversationId || ""
+            })),
+          messageId,
+          conversationId: run.conversationId || "",
+          runId: run.runId,
+          role: "AGENT",
+          content: appendThinking(visibleContent),
+          progress: RUNNING_TEXT,
+          status: draft.status || run.status,
+          failureReason: draft.failureReason || run.failureReason,
+          transient: true
+        };
+        return [...current.filter((item) => item.messageId !== messageId), nextMessage];
+      });
+    },
+    [api, messages]
+  );
 
   const syncFinalMessages = useCallback(
     async (conversationId: string, runId: string) => {
@@ -208,9 +329,7 @@ export function App() {
         }
         await new Promise((resolve) => window.setTimeout(resolve, 500));
       }
-      setTransientMessages((current) =>
-        current.filter((message) => !(message.runId === runId && message.conversationId === conversationId))
-      );
+      // 如果后端最终消息尚未可见，保留当前 transient 内容，避免失败/取消反馈在前端消失。
     },
     [api]
   );
@@ -221,10 +340,19 @@ export function App() {
     }
     const run = await api.getRun(activeRunId);
     setActiveRun(run);
+    if (!isTerminalRunStatus(run.status)) {
+      void restoreRunDraft(run);
+    }
+    if (run.status === "WAITING_APPROVAL") {
+      const approvals = await api.listPendingApprovals(activeRunId);
+      setPendingApprovals(approvals.approvals || []);
+    } else if (pendingApprovals.length > 0) {
+      setPendingApprovals([]);
+    }
     if (isTerminalRunStatus(run.status) && run.conversationId) {
       void syncFinalMessages(run.conversationId, activeRunId);
     }
-  }, [activeRunId, api, connection, syncFinalMessages]);
+  }, [activeRunId, api, connection, pendingApprovals.length, restoreRunDraft, syncFinalMessages]);
 
   const scrollToLatestIfFollowing = useCallback(() => {
     const surface = conversationSurfaceRef.current;
@@ -308,13 +436,39 @@ export function App() {
       return;
     }
     terminalSyncRef.current = syncKey;
+    setTransientMessages((current) => {
+      const messageId = `transient-agent-${activeRunId}`;
+      const existing = current.find((item) => item.messageId === messageId);
+      const savedAgentMessage = messages.find(
+        (message) => message.runId === activeRunId && message.conversationId === activeRun.conversationId && message.role === "AGENT"
+      );
+      const nextMessage = applyRunEventToTransientMessage({
+        runId: activeRunId,
+        conversationId: activeRun.conversationId || "",
+        event: {
+          eventId: `poll-terminal-${activeRunId}-${activeRun.status}`,
+          runId: activeRunId,
+          type: "run_finished",
+          payload: { status: activeRun.status, reason: activeRun.failureReason || "" }
+        },
+        existing,
+        savedContent: savedAgentMessage?.content,
+        runStatus: activeRun.status,
+        failureReason: activeRun.failureReason
+      });
+      if (!nextMessage) {
+        return current;
+      }
+      return [...current.filter((item) => item.messageId !== messageId), nextMessage];
+    });
     void syncFinalMessages(activeRun.conversationId, activeRunId);
-  }, [activeRun?.conversationId, activeRun?.status, activeRunId, syncFinalMessages]);
+  }, [activeRun?.conversationId, activeRun?.failureReason, activeRun?.status, activeRunId, messages, syncFinalMessages]);
 
   useEffect(() => {
     if (!activeRunId || !activeRun?.conversationId || isTerminalRunStatus(activeRun.status)) {
       return;
     }
+    void restoreRunDraft(activeRun);
     setTransientMessages((current) => {
       const exists = current.some(
         (message) => message.runId === activeRunId && message.conversationId === activeRun.conversationId
@@ -322,15 +476,22 @@ export function App() {
       if (exists) {
         return current;
       }
+      const savedAgentMessage = messages.find(
+        (message) => message.runId === activeRunId && message.conversationId === activeRun.conversationId && message.role === "AGENT"
+      );
       return [
         ...current,
-        buildTransientAgentMessage({
-          runId: activeRunId,
-          conversationId: activeRun.conversationId || ""
-        })
+        {
+          ...buildTransientAgentMessage({
+            runId: activeRunId,
+            conversationId: activeRun.conversationId || ""
+          }),
+          content: appendThinking(savedAgentMessage?.content),
+          progress: RUNNING_TEXT
+        }
       ];
     });
-  }, [activeRun?.conversationId, activeRun?.status, activeRunId, selectedConversation]);
+  }, [activeRun?.conversationId, activeRun?.status, activeRunId, messages, selectedConversation]);
 
   useEffect(() => {
     if (!notice) {
@@ -344,27 +505,64 @@ export function App() {
     if (!activeRunId || !activeRun?.conversationId || sse.events.length === 0) {
       return;
     }
-    const finalEvent = [...sse.events].reverse().find((event) => event.type === "run_finished");
     const latestEvent = sse.events[sse.events.length - 1];
-    const status = finalEvent?.payload?.["status"] ? String(finalEvent.payload["status"]) : activeRun.status;
-    if (finalEvent) {
+    const eventKey = latestEvent?.eventId || `${latestEvent?.type}:${JSON.stringify(latestEvent?.payload || {})}`;
+    if (eventKey && processedSseEventIdsRef.current.has(eventKey)) {
+      return;
+    }
+    if (eventKey) {
+      processedSseEventIdsRef.current.add(eventKey);
+    }
+    const visibleEventTypes = new Set([
+      "assistant_message_started",
+      "assistant_delta",
+      "assistant_message_cancelled",
+      "model_stream_failure",
+      "run_finished"
+    ]);
+    if (!latestEvent || !visibleEventTypes.has(latestEvent.type)) {
+      return;
+    }
+
+    const callNo = latestEvent.payload?.["callNo"] == null ? "" : String(latestEvent.payload["callNo"]);
+    const previousCallNo = streamCallNoByRunRef.current[activeRunId];
+    const resetBody = latestEvent.type === "assistant_message_started" && !!callNo && !!previousCallNo && previousCallNo !== callNo;
+    if (latestEvent.type === "assistant_message_started" && callNo) {
+      streamCallNoByRunRef.current[activeRunId] = callNo;
+    }
+
+    setTransientMessages((current) => {
+      const messageId = `transient-agent-${activeRunId}`;
+      const existing = current.find((item) => item.messageId === messageId);
+      const savedAgentMessage = messages.find(
+        (message) => message.runId === activeRunId && message.conversationId === activeRun.conversationId && message.role === "AGENT"
+      );
+      const nextMessage = applyRunEventToTransientMessage({
+        runId: activeRunId,
+        conversationId: activeRun.conversationId || "",
+        event: latestEvent,
+        existing,
+        savedContent: savedAgentMessage?.content,
+        runStatus: activeRun.status,
+        failureReason: activeRun.failureReason,
+        resetBody
+      });
+      if (!nextMessage) {
+        return current;
+      }
+      return [...current.filter((item) => item.messageId !== messageId), nextMessage];
+    });
+
+    if (latestEvent.type === "run_finished") {
+      const status = latestEvent.payload?.["status"] ? String(latestEvent.payload["status"]) : activeRun.status;
       if (completedRunRef.current !== activeRunId) {
         completedRunRef.current = activeRunId;
         setActiveRun((current) => (current && current.status !== status ? { ...current, status } : current));
         void refreshRun();
         void syncFinalMessages(activeRun.conversationId, activeRunId);
       }
-      return;
     }
-    setTransientMessages((current) => {
-      const message = buildTransientAgentMessage({
-        runId: activeRunId,
-        conversationId: activeRun.conversationId || "",
-        latestEvent
-      });
-      return [...current.filter((item) => item.messageId !== message.messageId), message];
-    });
-  }, [activeRun?.conversationId, activeRun?.status, activeRunId, refreshRun, sse.events, syncFinalMessages]);
+  }, [activeRun?.conversationId, activeRun?.status, activeRunId, messages, refreshRun, sse.events, syncFinalMessages]);
 
   useLayoutEffect(() => {
     if (!selectedConversation || loadedConversationId !== selectedConversation) {
@@ -426,6 +624,11 @@ export function App() {
   async function createConversation() {
     if (!selectedWorkspace) {
       setNotice("请先选择工作区");
+      return;
+    }
+    if (!model) {
+      setView("model-settings");
+      setNotice("请先配置并启用模型");
       return;
     }
     setBusy(true);
@@ -500,6 +703,23 @@ export function App() {
     setBusy(true);
     try {
       await api.deleteMessage(selectedConversation, message.messageId);
+      setMessages((current) =>
+        message.role === "USER" && message.runId
+          ? current.filter((item) => item.runId !== message.runId)
+          : current.filter((item) => item.messageId !== message.messageId)
+      );
+      setTransientMessages((current) =>
+        message.runId
+          ? current.filter((item) => item.runId !== message.runId)
+          : current.filter((item) => item.messageId !== message.messageId)
+      );
+      if (message.runId && message.runId === activeRunId) {
+        setActiveRunId("");
+        setActiveRun(null);
+        completedRunRef.current = "";
+        terminalSyncRef.current = "";
+        processedSseEventIdsRef.current.clear();
+      }
       await refreshMessages();
       setNotice("消息已删除");
     } catch (error) {
@@ -511,7 +731,12 @@ export function App() {
 
   async function saveEditedMessage(message: ConversationMessage) {
     if (!selectedWorkspace || !selectedConversation || !editingContent.trim()) {
-      setNotice("缂栬緫鍐呭涓嶈兘涓虹┖");
+      setNotice("编辑内容不能为空");
+      return;
+    }
+    if (!model) {
+      setView("model-settings");
+      setNotice("请先配置并启用模型");
       return;
     }
     setBusy(true);
@@ -545,8 +770,8 @@ export function App() {
           conversationId: selectedConversation,
           runId: run.runId,
           role: "AGENT",
-          content: "思考中...",
-          progress: "正在运行...",
+          content: THINKING_TEXT,
+          progress: RUNNING_TEXT,
           transient: true
         }
       ]);
@@ -563,6 +788,11 @@ export function App() {
   async function submitTask() {
     if (!selectedWorkspace || !task.trim()) {
       setNotice("请选择工作区并输入任务");
+      return;
+    }
+    if (!model) {
+      setView("model-settings");
+      setNotice("请先配置并启用模型");
       return;
     }
     setBusy(true);
@@ -594,8 +824,8 @@ export function App() {
           conversationId,
           runId: run.runId,
           role: "AGENT",
-          content: "思考中...",
-          progress: "正在运行...",
+          content: THINKING_TEXT,
+          progress: RUNNING_TEXT,
           transient: true
         }
       ]);
@@ -624,16 +854,123 @@ export function App() {
 
   async function cancelRun() {
     if (!activeRunId) return;
+    const runId = activeRunId;
     setBusy(true);
     try {
-      await api.cancelRun(activeRunId);
+      await api.cancelRun(runId);
+      setActiveRun((current) => (current && current.runId === runId ? { ...current, status: "CANCELLED" } : current));
+      setTransientMessages((current) =>
+        current.map((message) => {
+          if (message.runId !== runId) {
+            return message;
+          }
+          return {
+            ...message,
+            content: stripThinking(message.content),
+            progress: undefined,
+            status: "CANCELLED"
+          };
+        })
+      );
       await refreshRun();
-      setNotice("已发送取消请求");
+      setNotice("已取消任务");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "取消失败");
     } finally {
       setBusy(false);
     }
+  }
+
+  function editModelProvider(provider: ModelProvider) {
+    setEditingModelKey(provider.modelKey);
+    setModelForm({
+      modelKey: provider.modelKey,
+      displayName: provider.displayName,
+      provider: provider.provider,
+      baseUrl: provider.baseUrl,
+      apiKey: "",
+      modelName: provider.modelName,
+      endpointType: provider.endpointType,
+      timeoutSeconds: provider.timeoutSeconds || 120,
+      temperature: provider.temperature ?? 0.2,
+      streamingEnabled: true,
+      toolCallingEnabled: provider.toolCallingEnabled,
+      defaultModel: provider.defaultModel,
+      budget: provider.budget || {}
+    });
+    setView("model-settings");
+  }
+
+  async function saveModelProvider() {
+    if (!modelForm.modelKey || !modelForm.baseUrl || !modelForm.modelName) {
+      setNotice("请填写模型 key、Base URL 和模型名称");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (editingModelKey) {
+        await api.updateModelProvider(editingModelKey, modelForm);
+      } else {
+        await api.createModelProvider(modelForm);
+      }
+      await refreshAll();
+      setEditingModelKey("");
+      setModelForm({ ...modelForm, modelKey: "", displayName: "", apiKey: "", modelName: "" });
+      setNotice("模型配置已保存");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "模型配置保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeModelProvider(provider: ModelProvider) {
+    if (!window.confirm(`确定删除模型配置 "${provider.modelKey}" 吗？`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.deleteModelProvider(provider.modelKey);
+      await refreshAll();
+      setNotice("模型配置已删除");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "模型配置删除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decideApproval(approval: ToolApproval, approved: boolean) {
+    setBusy(true);
+    try {
+      if (approved) {
+        await api.approveToolApproval(approval.approvalId, "客户端批准");
+      } else {
+        await api.rejectToolApproval(approval.approvalId, "客户端拒绝");
+      }
+      await refreshRun();
+      setNotice(approved ? "已批准工具执行" : "已拒绝工具执行");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "审批处理失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+function terminalForMessage(message: ConversationMessage) {
+    if (message.role !== "AGENT") {
+      return "";
+    }
+    const messageTerminalStatus = isTerminalRunStatus(message.status) ? message.status : "";
+    const status =
+      messageTerminalStatus || (message.runId === activeRunId && activeRun?.status ? activeRun.status : message.status);
+    const reason =
+      messageTerminalStatus && message.failureReason
+        ? message.failureReason
+        : message.runId === activeRunId && activeRun?.failureReason
+          ? activeRun.failureReason
+          : message.failureReason;
+    return terminalLine(status || "", reason);
   }
 
   return (
@@ -733,9 +1070,9 @@ export function App() {
           </div>
         </section>
 
-        <button className="settings-link">
+        <button className="settings-link" onClick={() => setView(view === "model-settings" ? "chat" : "model-settings")}>
           <Settings size={17} />
-          设置
+          模型配置
         </button>
       </aside>
 
@@ -752,6 +1089,83 @@ export function App() {
           </div>
         </header>
 
+        {view === "model-settings" ? (
+          <section className="model-settings-view">
+            <div className="settings-heading">
+              <h2>模型配置</h2>
+              <p>保存 OpenAI-compatible 模型配置后，对话输入区会自动刷新可选模型。</p>
+            </div>
+            <div className="model-form-grid">
+              <ConfigField title="Model Key" description="用于 Agent Run 请求的模型标识。">
+                <input value={modelForm.modelKey} onChange={(event) => setModelForm({ ...modelForm, modelKey: event.target.value })} />
+              </ConfigField>
+              <ConfigField title="Display Name" description="客户端展示名称。">
+                <input value={modelForm.displayName} onChange={(event) => setModelForm({ ...modelForm, displayName: event.target.value })} />
+              </ConfigField>
+              <ConfigField title="Base Url" description="OpenAI Compatible Inference API 的基础 URL。">
+                <input value={modelForm.baseUrl} onChange={(event) => setModelForm({ ...modelForm, baseUrl: event.target.value })} />
+              </ConfigField>
+              <ConfigField title="API Key" description="保存时写入后端数据库，查询列表只显示脱敏值。">
+                <input type="password" value={modelForm.apiKey || ""} onChange={(event) => setModelForm({ ...modelForm, apiKey: event.target.value })} />
+              </ConfigField>
+              <ConfigField title="Model Name" description="供应商实际模型名。">
+                <input value={modelForm.modelName} onChange={(event) => setModelForm({ ...modelForm, modelName: event.target.value })} />
+              </ConfigField>
+              <ConfigField title="Endpoint Type" description="Chat Completions 或 Responses 流式协议。">
+                <select value={modelForm.endpointType} onChange={(event) => setModelForm({ ...modelForm, endpointType: event.target.value })}>
+                  <option value="chat-completions">chat-completions</option>
+                  <option value="responses">responses</option>
+                </select>
+              </ConfigField>
+              <ConfigField title="Timeout Seconds" description="单次模型请求超时时间。">
+                <input type="number" value={modelForm.timeoutSeconds || 120} onChange={(event) => setModelForm({ ...modelForm, timeoutSeconds: Number(event.target.value) })} />
+              </ConfigField>
+              <ConfigField title="Context Budget" description="可选模型级输入预算，留空使用全局默认。">
+                <input
+                  type="number"
+                  placeholder="inputBudgetTokens"
+                  value={modelForm.budget?.inputBudgetTokens || ""}
+                  onChange={(event) =>
+                    setModelForm({
+                      ...modelForm,
+                      budget: { ...(modelForm.budget || {}), inputBudgetTokens: event.target.value ? Number(event.target.value) : undefined }
+                    })
+                  }
+                />
+              </ConfigField>
+            </div>
+            <div className="form-actions">
+              <button onClick={saveModelProvider} disabled={busy}>
+                <CheckCircle2 size={16} />
+                {editingModelKey ? "保存修改" : "新增模型"}
+              </button>
+              {editingModelKey && (
+                <button onClick={() => setEditingModelKey("")}>
+                  <X size={16} />
+                  取消编辑
+                </button>
+              )}
+            </div>
+            <div className="model-list">
+              {modelProviders.map((provider) => (
+                <div className="model-row" key={provider.modelKey}>
+                  <div>
+                    <strong>{provider.displayName || provider.modelKey}</strong>
+                    <small>{provider.modelKey} · {provider.endpointType} · {provider.apiKeyMasked || "未显示密钥"}</small>
+                  </div>
+                  <button onClick={() => editModelProvider(provider)}>
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => void removeModelProvider(provider)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              {modelProviders.length === 0 && <p className="empty-small">暂无模型配置</p>}
+            </div>
+          </section>
+        ) : (
+          <>
         <section className="conversation-surface" ref={conversationSurfaceRef} onScroll={handleConversationScroll}>
           {selectedConversation && loadedConversationId !== selectedConversation ? (
             <div className="conversation-loading">
@@ -813,7 +1227,7 @@ export function App() {
                       </div>
                     </div>
                   ) : (
-                    <p>{message.content}</p>
+                    renderMessageContent(message.content, terminalForMessage(message))
                   )}
                 </article>
               ))}
@@ -837,16 +1251,22 @@ export function App() {
               {permissionLevels.length === 0 && <option value="L1_READ_ONLY">只读分析</option>}
             </select>
             <select value={model} onChange={(event) => setModel(event.target.value)}>
-              {MODEL_OPTIONS.map((item) => (
-                <option value={item} key={item}>
-                  {item}
+              {hasModelCandidates ? (
+                modelProviders.map((item) => (
+                  <option value={item.modelKey} key={item.modelKey}>
+                    {item.displayName || item.modelKey}
+                  </option>
+                ))
+              ) : (
+                <option value="">
+                  请配置模型
                 </option>
-              ))}
+              )}
             </select>
             <button
               className={`send-button ${activeInSelectedConversation ? "cancel" : ""}`}
               onClick={activeInSelectedConversation ? cancelRun : submitTask}
-              disabled={busy || (!activeInSelectedConversation && !task.trim())}
+              disabled={busy || (!activeInSelectedConversation && (!task.trim() || !hasModelCandidates))}
               title={activeInSelectedConversation ? "取消当前任务" : "发送任务"}
             >
               {busy ? (
@@ -865,6 +1285,8 @@ export function App() {
             <span>{selectedPermission.description}</span>
             <strong>{selectedPermission.riskNotice}</strong>
           </div>
+        )}
+          </>
         )}
       </main>
 
@@ -919,7 +1341,12 @@ export function App() {
             <span>步骤 {activeRun?.stepCount ?? 0}</span>
             <span>模型 {activeRun?.modelCallCount ?? 0}</span>
             <span>工具 {activeRun?.toolCallCount ?? 0}</span>
+            <span>上下文 {activeRun?.finalContextTokens ?? 0}</span>
+            <span>压缩 {activeRun?.contextCompressionRatio ?? 0}</span>
+            <span>记忆 {activeRun?.memoryHitCount ?? 0}</span>
+            <span>过期 {activeRun?.staleMemoryCount ?? 0}</span>
           </div>
+          {activeRun?.latestContextSnapshotPath && <p className="hint">{activeRun.latestContextSnapshotPath}</p>}
           <div className="two-buttons">
             <button onClick={refreshRun} disabled={!activeRunId}>
               <RefreshCcw size={15} />
@@ -956,6 +1383,31 @@ export function App() {
         </section>
       </aside>
 
+      {pendingApprovals.map((approval) => (
+        <div className="modal-backdrop" key={approval.approvalId}>
+          <div className="approval-modal">
+            <div className="panel-title">
+              <AlertTriangle size={18} />
+              高风险工具审批
+            </div>
+            <h3>{approval.toolName}</h3>
+            <p>{approval.riskSummary}</p>
+            {approval.diffSummary && <pre>{approval.diffSummary}</pre>}
+            <pre>{approval.argumentsJson}</pre>
+            <div className="two-buttons">
+              <button onClick={() => void decideApproval(approval, true)} disabled={busy}>
+                <CheckCircle2 size={15} />
+                批准
+              </button>
+              <button onClick={() => void decideApproval(approval, false)} disabled={busy}>
+                <CircleStop size={15} />
+                拒绝
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+
       {notice && (
         <div className="toast" onClick={() => setNotice(null)}>
           <AlertTriangle size={16} />
@@ -972,5 +1424,23 @@ function ReviewItem({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong title={value}>{value}</strong>
     </div>
+  );
+}
+
+function ConfigField({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="config-field">
+      <strong>{title}</strong>
+      <span>{description}</span>
+      {children}
+    </label>
   );
 }

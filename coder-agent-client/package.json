@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "build:backend": "cd .. && mvn -pl coder-agent-app -am package -DskipTests",
+    "pretauri": "npm run build:backend",
     "tauri": "tauri"
   },
   "dependencies": {

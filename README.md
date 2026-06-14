@@ -40,7 +40,8 @@ PostgreSQL/pgvector 初始化：
 docs/dev-ops/postgresql/sql/coder-agent.sql
 ```
 
-v4 新增表包含模型配置、上下文快照、记忆元数据、记忆召回、工具审批、eval benchmark/run/result。pgvector 只保存向量 chunk 和检索元数据，不保存 API Key。
+MYSQL 表包含会话记录、模型配置、上下文快照、Agent 运行记录、工作区配置、记忆元数据、记忆召回、工具审批、运行工件记录、模型调用记录、eval benchmark/run/result等。
+pgvector 保存向量 chunk 和检索元数据。
 
 ## .env 配置
 
@@ -84,7 +85,7 @@ TOOL_APPROVAL_ENABLED=true
 EVAL_ENABLED=true
 ```
 
-Chat 模型 API Key 不再来自 `.env` 固定三模型配置，必须通过模型配置中心保存到数据库。Embedding 模型仍使用全局固定配置。
+Chat 模型通过客户端模型配置中心保存到数据库；Embedding 模型仍使用`.env` 全局固定配置[需在使用前进行手动配置]。
 
 ## 启动
 

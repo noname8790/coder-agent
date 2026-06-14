@@ -733,6 +733,151 @@ h1 {
   box-shadow: 0 18px 44px rgba(33, 45, 58, 0.18);
 }
 
+.model-settings-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 26px;
+  border: 1px solid #e0e6ec;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.settings-heading {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.settings-heading h2 {
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.settings-heading p {
+  color: #5f6d78;
+  line-height: 1.5;
+}
+
+.model-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 18px 28px;
+}
+
+.config-field {
+  display: grid;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 3px solid #e3d4aa;
+}
+
+.config-field strong {
+  font-size: 14px;
+}
+
+.config-field span {
+  color: #56626e;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.form-actions button,
+.model-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #26313a;
+  background: #edf3f6;
+}
+
+.model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e2e8ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.model-row div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.model-row strong,
+.model-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row small {
+  color: #6f7c87;
+  font-size: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(20, 30, 38, 0.28);
+}
+
+.approval-modal {
+  display: grid;
+  gap: 12px;
+  width: min(620px, 100%);
+  max-height: 78vh;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid #ead3cc;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(25, 35, 45, 0.24);
+}
+
+.approval-modal h3 {
+  margin: 0;
+}
+
+.approval-modal p {
+  color: #7a3d31;
+  line-height: 1.5;
+}
+
+.approval-modal pre {
+  overflow: auto;
+  max-height: 180px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  color: #34414d;
+  background: #f6f9fb;
+  white-space: pre-wrap;
+}
+
 .spin {
   animation: spin 0.8s linear infinite;
 }

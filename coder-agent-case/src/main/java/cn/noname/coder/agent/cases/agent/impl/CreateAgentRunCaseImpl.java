@@ -3,12 +3,15 @@ package cn.noname.coder.agent.cases.agent.impl;
 import cn.noname.coder.agent.api.dto.CreateAgentRunRequestDTO;
 import cn.noname.coder.agent.api.dto.CreateAgentRunResponseDTO;
 import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
+import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
@@ -44,6 +47,9 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
     private final IAgentConversationRepository conversationRepository;
     private final IArtifactPort artifactPort;
     private final IModelConfigPort modelConfigPort;
+    private final IContextSnapshotRepository contextSnapshotRepository;
+    private final MemoryService memoryService;
+    private final IToolApprovalRepository toolApprovalRepository;
     private final AgentRuntimeProperties properties;
     private final AgentRunExecutor agentRunExecutor;
     private final TaskExecutor taskExecutor;
@@ -54,6 +60,9 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                                   IAgentConversationRepository conversationRepository,
                                   IArtifactPort artifactPort,
                                   IModelConfigPort modelConfigPort,
+                                  IContextSnapshotRepository contextSnapshotRepository,
+                                  MemoryService memoryService,
+                                  IToolApprovalRepository toolApprovalRepository,
                                   AgentRuntimeProperties properties,
                                   AgentRunExecutor agentRunExecutor,
                                   @Qualifier("agentRunTaskExecutor") TaskExecutor taskExecutor) {
@@ -63,6 +72,9 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         this.conversationRepository = conversationRepository;
         this.artifactPort = artifactPort;
         this.modelConfigPort = modelConfigPort;
+        this.contextSnapshotRepository = contextSnapshotRepository;
+        this.memoryService = memoryService;
+        this.toolApprovalRepository = toolApprovalRepository;
         this.properties = properties;
         this.agentRunExecutor = agentRunExecutor;
         this.taskExecutor = taskExecutor;
@@ -83,7 +95,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                     return new AppException("WORKSPACE_NOT_FOUND", "workspaceKey 未配置：" + request.workspaceKey());
                 });
 
-        long running = runRepository.countByStatuses(List.of(AgentRunStatus.CREATED, AgentRunStatus.RUNNING));
+        long running = runRepository.countByStatuses(List.of(AgentRunStatus.CREATED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_APPROVAL));
         if (running >= properties.getBudget().getMaxConcurrentRuns()) {
             throw new AppException("CONCURRENT_LIMIT", "当前运行数已达到上限：" + properties.getBudget().getMaxConcurrentRuns());
         }
@@ -181,6 +193,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                 source.setContent(run.getTask());
                 conversationRepository.updateMessage(source);
                 conversationRepository.deleteAgentMessagesByRunId(oldRunId);
+                clearOldRunContext(run.getWorkspaceKey(), oldRunId);
                 log.info("复用用户消息创建 Agent 运行 runId={} conversationId={} sourceMessageId={} oldRunId={}",
                         run.getRunId(), conversation.getConversationId(), source.getMessageId(), oldRunId);
             } else {
@@ -214,6 +227,19 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                     .createdAt(LocalDateTime.now())
                     .build());
         }
+    }
+
+    private void clearOldRunContext(String workspaceKey, String oldRunId) {
+        if (!StringUtils.hasText(oldRunId)) {
+            return;
+        }
+        List<String> runIds = List.of(oldRunId);
+        contextSnapshotRepository.deleteByRunIds(runIds);
+        memoryService.deleteRunMemories(workspaceKey, runIds);
+        toolApprovalRepository.deleteByRunIds(runIds);
+        recordRepository.deleteByRunIds(runIds);
+        runRepository.deleteByRunIds(runIds);
+        log.info("重跑前清理旧 Agent 运行 runId={} workspaceKey={}", oldRunId, workspaceKey);
     }
 
 }

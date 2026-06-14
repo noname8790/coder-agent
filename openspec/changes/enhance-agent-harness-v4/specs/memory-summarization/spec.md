@@ -1,30 +1,29 @@
 ## ADDED Requirements
 
-### Requirement: 自动文件摘要生成
-系统 SHALL 在文件被读取、搜索命中或摘要 stale 时，按预算自动生成文件摘要。摘要生成 MUST 跳过受保护路径和疑似敏感文件。涉及工具：`read_file`、`search_text`。涉及表：`agent_memory_item`、`memory_chunk`。
+### Requirement: 文件摘要生成
+系统 SHALL 在文件读取、搜索命中或文件 stale 时按预算生成文件摘要。
 
-#### Scenario: 读取无摘要文件
-- **WHEN** Agent 读取 workspace 内普通文本文件且该文件没有有效摘要
-- **THEN** 系统 SHALL 在预算允许时生成摘要、写入记忆并记录 trace
+#### Scenario: 读取代码文件
+- **WHEN** Agent 工具读取一个允许摘要的代码文件
+- **THEN** 系统 SHALL 在预算允许时生成结构化文件摘要并保存记忆
 
-### Requirement: 摘要预算控制
-系统 MUST 限制每次 run 的自动摘要文件数、embedding 调用数、摘要输入字节数、摘要耗时和摘要模型调用数。超限时 SHALL 跳过摘要生成，不阻断主任务。涉及配置：`MEMORY_MAX_*`。涉及表：`audit_event`、`model_call`。
+### Requirement: 摘要安全过滤
+系统 MUST 跳过 `.env`、`.git/`、`.coder/`、`target/`、密钥和疑似敏感文件。
 
-#### Scenario: 摘要预算耗尽
-- **WHEN** 当前 run 的自动摘要调用达到上限
-- **THEN** 系统 SHALL 跳过后续自动摘要，并记录 skipped reason
+#### Scenario: 命中敏感文件
+- **WHEN** 摘要候选文件属于敏感路径或疑似密钥文件
+- **THEN** 系统 MUST 拒绝生成摘要，并记录跳过原因
 
-### Requirement: 会话与运行摘要
-系统 SHALL 在会话消息超过阈值或 Agent Run 结束时生成会话摘要、任务摘要和运行摘要，并写入结构化记忆。涉及 API：`/api/conversations/{conversationId}/messages`、`GET /api/agent-runs/{runId}`。涉及表：`agent_memory_item`、`agent_message`、`agent_run`。
+### Requirement: 运行结束摘要
+系统 SHALL 在运行结束后生成任务摘要和运行摘要，并在预算允许时向量化。
 
-#### Scenario: 运行成功后生成运行摘要
-- **WHEN** Agent Run 进入 SUCCEEDED
-- **THEN** 系统 SHALL 生成运行摘要，包含任务、关键文件、工具结果、最终结论和后续注意事项
+#### Scenario: Agent Run 成功结束
+- **WHEN** Agent Run 进入终态
+- **THEN** 系统 SHALL 保存运行摘要，并将其作为后续同 workspace 任务可召回记忆
 
-### Requirement: 摘要敏感信息脱敏
-系统 MUST 在保存摘要、embedding 输入、trace 和 context snapshot 前执行敏感信息脱敏。涉及表：`agent_memory_item`、`memory_chunk`、`audit_event`。
+### Requirement: 摘要脱敏
+系统 MUST 对摘要输入、摘要结果、embedding 输入、trace 和 snapshot 执行敏感信息脱敏。
 
-#### Scenario: 文件内容包含疑似密钥
-- **WHEN** 摘要输入包含 token、password、credential 或私钥特征
-- **THEN** 系统 MUST 脱敏或拒绝摘要，并记录安全审计事件
-
+#### Scenario: 摘要内容包含密钥形态文本
+- **WHEN** 摘要内容包含 API Key、token、password 或 private key
+- **THEN** 系统 MUST 在入库和写工件前脱敏

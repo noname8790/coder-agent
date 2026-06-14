@@ -1,9 +1,13 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
+import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelProtocolMessage;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
+import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
 import cn.noname.coder.agent.infrastructure.gateway.OpenAiHttpGatewayService;
-import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -11,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +31,7 @@ class OpenAiResponsesModelGatewayTest {
             server.enqueue(new MockResponse()
                     .setHeader("Content-Type", "application/json")
                     .setBody("{\"id\":\"resp_1\",\"output_text\":\"仓库包含多模块 Maven 项目\"}"));
-            OpenAiResponsesModelGateway gateway = gateway(properties(server));
+            OpenAiResponsesModelGateway gateway = gateway(config("test-model", server, "responses", 60, "test-key", "test-model"));
 
             // When 调用模型网关
             var response = gateway.call(new ModelRequest("run_1", "test-model", List.of("hello"), List.of()));
@@ -46,7 +51,7 @@ class OpenAiResponsesModelGatewayTest {
                     .setBody("""
                             {"id":"resp_2","output":[{"type":"function_call","call_id":"call_1","name":"list_files","arguments":"{\\"path\\":\\".\\"}"}]}
                             """));
-            OpenAiResponsesModelGateway gateway = gateway(properties(server));
+            OpenAiResponsesModelGateway gateway = gateway(config("test-model", server, "responses", 60, "test-key", "test-model"));
 
             // When 调用模型网关
             var response = gateway.call(new ModelRequest("run_1", "test-model", List.of("hello"),
@@ -66,9 +71,7 @@ class OpenAiResponsesModelGatewayTest {
             server.enqueue(new MockResponse()
                     .setHeader("Content-Type", "application/json")
                     .setBody("{\"id\":\"chatcmpl_1\",\"choices\":[{\"message\":{\"content\":\"仓库分析完成\"}}]}"));
-            AgentRuntimeProperties properties = properties(server);
-            properties.getModel().setEndpointType("chat-completions");
-            OpenAiResponsesModelGateway gateway = gateway(properties);
+            OpenAiResponsesModelGateway gateway = gateway(config("test-model", server, "chat-completions", 60, "test-key", "test-model"));
 
             // When 调用模型网关
             var response = gateway.call(new ModelRequest("run_1", "test-model", List.of("hello"), List.of()));
@@ -87,10 +90,7 @@ class OpenAiResponsesModelGatewayTest {
                     .setHeader("Content-Type", "application/json")
                     .setBody("{\"id\":\"chatcmpl_slow\",\"choices\":[{\"message\":{\"content\":\"slow answer\"}}]}")
                     .setBodyDelay(11, TimeUnit.SECONDS));
-            AgentRuntimeProperties properties = properties(server);
-            properties.getModel().setEndpointType("chat-completions");
-            properties.getModel().setTimeoutSeconds(15);
-            OpenAiResponsesModelGateway gateway = gateway(properties);
+            OpenAiResponsesModelGateway gateway = gateway(config("test-model", server, "chat-completions", 15, "test-key", "test-model"));
 
             // When 调用慢响应模型
             var response = gateway.call(new ModelRequest("run_1", "test-model", List.of("hello"), List.of()));
@@ -112,22 +112,11 @@ class OpenAiResponsesModelGatewayTest {
                     .setHeader("Content-Type", "application/json")
                     .setBody("{\"id\":\"chatcmpl_deepseek\",\"choices\":[{\"message\":{\"content\":\"deepseek\"}}]}"));
 
-            AgentRuntimeProperties properties = properties(defaultServer);
-            properties.getModel().setDefaultModelKey("glm-5");
-            properties.getModel().setEndpointType("chat-completions");
-
-            AgentRuntimeProperties.Backend glm = new AgentRuntimeProperties.Backend();
-            glm.setModel("glm-5");
-            properties.getModel().getModels().put("glm-5", glm);
-
-            AgentRuntimeProperties.Backend deepseek = new AgentRuntimeProperties.Backend();
-            deepseek.setBaseUrl(deepseekServer.url("/compatible-mode/v1").toString());
-            deepseek.setApiKey("deepseek-key");
-            deepseek.setModel("deepseek-v4-flash");
-            deepseek.setEndpointType("chat-completions");
-            properties.getModel().getModels().put("deepseek-v4-flash", deepseek);
-
-            OpenAiResponsesModelGateway gateway = gateway(properties);
+            TestModelConfigPort modelConfigPort = new TestModelConfigPort(Map.of(
+                    "glm-5", config("glm-5", defaultServer, "chat-completions", 60, "default-key", "glm-5"),
+                    "deepseek-v4-flash", config("deepseek-v4-flash", deepseekServer, "chat-completions", 60, "deepseek-key", "deepseek-v4-flash")
+            ));
+            OpenAiResponsesModelGateway gateway = gateway(modelConfigPort);
 
             // When 指定 deepseek 模型 key 调用
             var response = gateway.call(new ModelRequest("run_1", "deepseek-v4-flash", List.of("hello"), List.of()));
@@ -135,22 +124,81 @@ class OpenAiResponsesModelGatewayTest {
             // Then 请求被路由到 deepseek 后端，并使用真实模型名和对应鉴权
             assertEquals("deepseek", response.finalAnswer());
             var request = deepseekServer.takeRequest();
-            assertEquals("/compatible-mode/v1/chat/completions", request.getPath());
+            assertEquals("/v1/chat/completions", request.getPath());
             assertEquals("Bearer deepseek-key", request.getHeader("Authorization"));
             assertEquals("deepseek-v4-flash", objectMapper.readTree(request.getBody().readUtf8()).get("model").asText());
             assertEquals(0, defaultServer.getRequestCount());
         }
     }
 
-    private OpenAiResponsesModelGateway gateway(AgentRuntimeProperties properties) {
-        return new OpenAiResponsesModelGateway(new ModelConfigPort(properties), new OpenAiHttpGatewayService());
+    @Test
+    void shouldSendToolResultAsChatCompletionToolMessageGivenProtocolMessages() throws Exception {
+        // Given a previous assistant tool call and a local tool result
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"id\":\"chatcmpl_tool_result\",\"choices\":[{\"message\":{\"content\":\"done\"}}]}"));
+            OpenAiResponsesModelGateway gateway = gateway(config("test-model", server, "chat-completions", 60, "test-key", "test-model"));
+            ToolInvocation invocation = new ToolInvocation("call_1", "list_files", "{\"path\":\"src/test/java\"}");
+
+            // When the next model request is sent
+            gateway.call(new ModelRequest("run_1", "test-model", List.of("system context"),
+                    List.of(new ToolDefinition("list_files", "list files", Map.of("type", "object"))),
+                    List.of(
+                            ModelProtocolMessage.user("system context"),
+                            ModelProtocolMessage.assistantToolCalls(List.of(invocation), ""),
+                            ModelProtocolMessage.toolResult(invocation, "[D] cn\n[F] demoTest.java")
+                    )));
+
+            // Then the OpenAI-compatible chat payload uses standard assistant/tool messages.
+            JsonNode messages = objectMapper.readTree(server.takeRequest().getBody().readUtf8()).get("messages");
+            assertEquals("user", messages.get(0).get("role").asText());
+            assertEquals("assistant", messages.get(1).get("role").asText());
+            assertEquals("call_1", messages.get(1).get("tool_calls").get(0).get("id").asText());
+            assertEquals("list_files", messages.get(1).get("tool_calls").get(0).get("function").get("name").asText());
+            assertEquals("tool", messages.get(2).get("role").asText());
+            assertEquals("call_1", messages.get(2).get("tool_call_id").asText());
+            assertEquals("[D] cn\n[F] demoTest.java", messages.get(2).get("content").asText());
+        }
     }
 
-    private AgentRuntimeProperties properties(MockWebServer server) {
-        AgentRuntimeProperties properties = new AgentRuntimeProperties();
-        properties.getModel().setBaseUrl(server.url("/v1").toString());
-        properties.getModel().setApiKey("test-key");
-        properties.getModel().setModel("test-model");
-        return properties;
+    private OpenAiResponsesModelGateway gateway(ModelBackendConfig config) {
+        return gateway(new TestModelConfigPort(Map.of(config.modelKey(), config)));
+    }
+
+    private OpenAiResponsesModelGateway gateway(IModelConfigPort modelConfigPort) {
+        return new OpenAiResponsesModelGateway(modelConfigPort, new OpenAiHttpGatewayService());
+    }
+
+    private ModelBackendConfig config(String modelKey,
+                                      MockWebServer server,
+                                      String endpointType,
+                                      int timeoutSeconds,
+                                      String apiKey,
+                                      String actualModel) {
+        return new ModelBackendConfig(
+                modelKey,
+                "openai-compatible",
+                actualModel,
+                server.url("/v1").toString(),
+                apiKey,
+                endpointType,
+                0.2,
+                timeoutSeconds);
+    }
+
+    record TestModelConfigPort(Map<String, ModelBackendConfig> configs) implements IModelConfigPort {
+        @Override
+        public ModelBackendConfig defaultModel() {
+            return configs.values().iterator().next();
+        }
+
+        @Override
+        public Optional<ModelBackendConfig> resolve(String modelKey) {
+            if (modelKey == null || modelKey.isBlank()) {
+                return Optional.of(defaultModel());
+            }
+            return Optional.ofNullable(configs.get(modelKey));
+        }
     }
 }

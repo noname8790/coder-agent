@@ -6,6 +6,7 @@ import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.agent.adapter.port.IToolGovernancePort;
 import cn.noname.coder.agent.infrastructure.tools.LocalTool;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.CallStatus;
@@ -26,7 +27,7 @@ class ToolGatewayPermissionTest {
     @Test
     void shouldRejectEditingToolGivenL1Permission() {
         // Given L1 运行但请求编辑工具
-        ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")));
+        ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")), noopGovernance());
         AgentRun run = run(AgentPermissionLevel.L1_READ_ONLY);
 
         // When 调用 apply_patch / Then 被拒绝
@@ -38,7 +39,7 @@ class ToolGatewayPermissionTest {
     @Test
     void shouldAllowEditingToolGivenL2Permission() {
         // Given L2 运行
-        ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")));
+        ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")), noopGovernance());
 
         // When 调用 apply_patch / Then 由权限等级放行
         ToolResult result = gateway.execute(run(AgentPermissionLevel.L2_SAFE_EDIT), workspace(),
@@ -49,7 +50,7 @@ class ToolGatewayPermissionTest {
     @Test
     void shouldFilterDefinitionsByPermissionLevel() {
         // Given L1 运行
-        ToolGateway gateway = new ToolGateway(List.of(successTool("list_files"), successTool("apply_patch"), successTool("write_file")));
+        ToolGateway gateway = new ToolGateway(List.of(successTool("list_files"), successTool("apply_patch"), successTool("write_file")), noopGovernance());
 
         // When 获取工具定义
         List<String> names = gateway.definitions(run(AgentPermissionLevel.L1_READ_ONLY), workspace())
@@ -64,7 +65,7 @@ class ToolGatewayPermissionTest {
     @Test
     void shouldRejectShellCommandGivenL1Permission() {
         // Given L1 权限
-        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")));
+        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
 
         // When 执行测试命令 / Then 被拒绝
         ToolResult result = gateway.execute(run(AgentPermissionLevel.L1_READ_ONLY), workspace(),
@@ -76,7 +77,7 @@ class ToolGatewayPermissionTest {
     @Test
     void shouldAllowL3GitWriteAndRejectPush() {
         // Given L3 权限
-        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")));
+        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
         AgentRun run = run(AgentPermissionLevel.L3_REPO_WRITE);
 
         // When 执行本地 commit / Then 允许；执行 push / Then 拒绝
@@ -111,6 +112,20 @@ class ToolGatewayPermissionTest {
             @Override
             public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
                 return new ToolResult(CallStatus.SUCCESS, "ok", "ok", 0, null);
+            }
+        };
+    }
+
+    private IToolGovernancePort noopGovernance() {
+        return new IToolGovernancePort() {
+            @Override
+            public ToolResult validateBeforeExecution(String runId, String workspaceKey, ToolInvocation invocation) {
+                return null;
+            }
+
+            @Override
+            public ToolResult sanitizeAfterExecution(String runId, String workspaceKey, ToolInvocation invocation, ToolResult result) {
+                return result;
             }
         };
     }

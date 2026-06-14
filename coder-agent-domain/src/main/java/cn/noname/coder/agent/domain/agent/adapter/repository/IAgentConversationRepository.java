@@ -34,6 +34,9 @@ public interface IAgentConversationRepository {
 
     void deleteMessagesByRunId(String runId);
 
+    default void deleteMessagesByConversationId(String conversationId) {
+    }
+
     List<AgentMessage> listMessages(String conversationId);
 
     void savePermissionAudit(PermissionAudit audit);

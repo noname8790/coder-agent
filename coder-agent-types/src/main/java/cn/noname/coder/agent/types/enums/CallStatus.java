@@ -6,5 +6,6 @@ package cn.noname.coder.agent.types.enums;
 public enum CallStatus {
     SUCCESS,
     FAILED,
-    REJECTED
+    REJECTED,
+    WAITING_APPROVAL
 }

@@ -64,6 +64,9 @@ public class SearchTextTool implements LocalTool {
             }
             String output = readProcess(process);
             if (process.exitValue() == 0 || process.exitValue() == 1) {
+                if (output.isBlank()) {
+                    return new ToolResult(CallStatus.SUCCESS, "未找到匹配内容：query=" + query, "", process.exitValue(), null);
+                }
                 return new ToolResult(CallStatus.SUCCESS, limitLines(output), output, process.exitValue(), null);
             }
             return null;
@@ -79,6 +82,9 @@ public class SearchTextTool implements LocalTool {
             stream.filter(Files::isRegularFile)
                     .filter(path -> count[0] < properties.getTools().getMaxSearchResults())
                     .forEach(path -> scanFile(path, query, output, count));
+            if (count[0] == 0) {
+                output.append("未找到匹配内容：query=").append(query).append(System.lineSeparator());
+            }
             return new ToolResult(CallStatus.SUCCESS, output.toString(), output.toString(), 0, null);
         } catch (Exception e) {
             return new ToolResult(CallStatus.FAILED, "search_text 失败：" + e.getMessage(), output.toString(), 1, e.getMessage());

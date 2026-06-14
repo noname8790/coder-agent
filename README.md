@@ -1,342 +1,174 @@
 # coder-agent
 
-`coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 接收任务，在服务端配置的本地 `workspaceKey` 内执行受限工具，调用 OpenAI-compatible 模型接口，并把运行记录写入 MySQL，把可回放工件写入 `{workspaceRoot}/.coder/runs/{runId}/`。
+`coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 和 Tauri 客户端接收任务，在用户注册的本地 workspace 中读取仓库、搜索、修改文件、执行受限 PowerShell 命令、生成本地 commit/PR 草稿，并把运行过程持久化到 MySQL、pgvector 和 `{workspaceRoot}/.coder/`。
 
-当前第三版后端定位是本地仓库 Agent 基础闭环：读仓库、搜索、按权限等级执行安全编辑或仓库写入、本地 Git 分支/提交、生成 PR 草稿、SSE 运行事件流、会话历史和回滚材料。第三版仍不开放 `git push`、`git clean`、`git reset --hard` 或远程 PR 创建。
+当前 v4 目标是把项目从“能操作仓库的 coding agent”推进到“可治理、可记忆、可审计、可评测的 Agent Harness”，v4 版已实现Coding Agent基本功能。
 
 ## 模块
 
-- `coder-agent-types`：通用枚举、异常、响应、配置。
+- `coder-agent-types`：通用配置、枚举、异常和响应。
 - `coder-agent-api`：REST DTO。
-- `coder-agent-domain`：领域对象和值对象、端口接口。
-- `coder-agent-case`：会话、权限等级、创建、查询、取消、事件发布和后台执行编排。
-- `coder-agent-infrastructure`：MySQL、OpenAI-compatible 网关、本地工具、工件落盘。
-- `coder-agent-trigger`：HTTP Controller。
-- `coder-agent-app`：Spring Boot 启动和配置。
+- `coder-agent-domain`：领域对象、值对象和端口接口。
+- `coder-agent-case`：Agent Run、workspace、conversation、model provider、memory、context、approval、eval 用例编排。
+- `coder-agent-infrastructure`：MySQL、pgvector、OpenAI-compatible 网关、本地工具、工件落盘。
+- `coder-agent-trigger`：HTTP Controller 和 SSE。
+- `coder-agent-app`：Spring Boot 启动模块。
+- `coder-agent-client`：Tauri + React 客户端。
+
+## v4 能力
+
+- 模型配置中心：用户通过 API/客户端保存 OpenAI-compatible Base URL、API Key、模型名、Endpoint Type、流式能力和上下文预算。v4 不再使用 v3 的固定三模型运行时白名单。
+- 流式输出：Agent 正文通过 `assistant_delta` 实时推送，不再保留 v3 非流式一次性返回主路径。
+- 长上下文治理：按 system、任务、权限、消息、记忆、文件摘要、原始片段、工具结果分层装配 prompt，并写入 context snapshot。
+- 结构化记忆：MySQL 保存记忆元数据，PostgreSQL + pgvector 保存向量 chunk，每个 workspace 独立召回。
+- 自动摘要：读取文件、搜索命中和运行结束时按预算生成文件/运行摘要并向量化。
+- 工具治理：工具 schema 校验、敏感路径拒绝、重复调用拦截、敏感信息脱敏。
+- 高风险审批：`overwrite_file`、`delete_file`、`git commit` 进入 `WAITING_APPROVAL`；批准后继续，拒绝后把结构化拒绝结果返回 Agent。
+- Eval MVP：支持 benchmark、按模型批量执行、汇总 pass_rate/model_calls/tool_calls/failure_category/context compression/memory hit，并写 `.coder/evals/{evalId}/` 报告。
 
 ## 数据库
 
-初始化 SQL：
+MySQL 初始化：
 
 ```text
-docs/dev-ops/mysql/sql/coder_agent.sql
+docs/dev-ops/mysql/sql/coder-agent.sql
 ```
 
-如果是从首版或第二版数据库升级，`CREATE TABLE IF NOT EXISTS` 不会修改既有 `agent_run` 表。第三版升级字段和回滚 SQL 已写在 `docs/dev-ops/mysql/sql/coder_agent.sql` 尾部，至少需要新增：
+PostgreSQL/pgvector 初始化：
 
-- `agent_conversation`
-- `agent_message`
-- `agent_permission_audit`
-- `agent_run.conversation_id`
-- `agent_run.permission_level`
-- `agent_run.git_branch`
-- `agent_run.commit_hash`
+```text
+docs/dev-ops/postgresql/sql/coder-agent.sql
+```
 
-涉及表：
+v4 新增表包含模型配置、上下文快照、记忆元数据、记忆召回、工具审批、eval benchmark/run/result。pgvector 只保存向量 chunk 和检索元数据，不保存 API Key。
 
-- `agent_run`
-- `agent_workspace`
-- `agent_conversation`
-- `agent_message`
-- `agent_permission_audit`
-- `agent_step`
-- `model_call`
-- `tool_call`
-- `audit_event`
-- `run_artifact`
+## .env 配置
 
-## 配置
-
-`coder-agent-app/src/main/resources/application.yml` 内置本地开发默认值：
-
-- MySQL：`127.0.0.1:13306/coder-agent`
-- 默认 `workspaceKey`：`coder-agent`
-- 默认模型 key：`glm-5`
-- 可选模型 key：`qwen3.6-plus`、`glm-5`、`deepseek-v4-flash`
-
-本地开发可以在项目根目录创建 `.env`，Spring Boot 会通过 `spring.config.import=optional:file:.env[.properties]` 自动读取。`.env` 使用普通 `KEY=value` 格式：
+本地 `.env` 不提交。推荐至少配置：
 
 ```dotenv
-MYSQL_URL=jdbc:mysql://127.0.0.1:13306/coder-agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-MYSQL_USERNAME=root
-MYSQL_PASSWORD=
+MYSQL_URL=jdbc:mysql://127.0.0.1:13306<替换为你的MYSQL端口>/coder-agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+MYSQL_USERNAME=<你的MYSQL账户>
+MYSQL_PASSWORD=<你的MYSQL密码>
 
-CODER_AGENT_WORKSPACE_ROOT=
-CODER_AGENT_DEFAULT_MODEL_KEY=glm-5
+PGVECTOR_ENABLED=true
+PGVECTOR_URL=jdbc:postgresql://127.0.0.1:15432<替换为你的postgreSQL端口>/coder-agent
+PGVECTOR_USERNAME=<你的postgreSQL账户>
+PGVECTOR_PASSWORD=<你的postgreSQL密码>
+PGVECTOR_SCHEMA=public
+PGVECTOR_TABLE_PREFIX=coder_agent
+PGVECTOR_VECTOR_DIMENSIONS=1024
+PGVECTOR_INDEX_TYPE=hnsw
+PGVECTOR_SIMILARITY=cosine
 
-OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-OPENAI_COMPATIBLE_API_KEY=
-OPENAI_COMPATIBLE_ENDPOINT_TYPE=chat-completions
-OPENAI_COMPATIBLE_TIMEOUT_SECONDS=180
+EMBEDDING_PROVIDER=openai-compatible
+EMBEDDING_BASE_URL=<Base URL>
+EMBEDDING_API_KEY=<你的API Key>
+EMBEDDING_MODEL=<模型 key>
+EMBEDDING_ENDPOINT_TYPE=embeddings
+EMBEDDING_TIMEOUT_SECONDS=120
 
-GLM_OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-GLM_OPENAI_COMPATIBLE_API_KEY=
-GLM_OPENAI_COMPATIBLE_MODEL=glm-5
-GLM_OPENAI_COMPATIBLE_ENDPOINT_TYPE=chat-completions
-GLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS=180
+MEMORY_ENABLED=true
+MEMORY_TOP_K=8
+MEMORY_MIN_SCORE=0.35
+MEMORY_MAX_CHUNKS_PER_RUN=20
+MEMORY_MAX_EMBEDDING_CALLS_PER_RUN=8
+MEMORY_MAX_AUTO_SUMMARY_FILES_PER_RUN=6
+MEMORY_MAX_FILE_BYTES_FOR_SUMMARY=65536
 
-QWEN_OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN_OPENAI_COMPATIBLE_API_KEY=
-QWEN_OPENAI_COMPATIBLE_MODEL=qwen3.6-plus
-QWEN_OPENAI_COMPATIBLE_ENDPOINT_TYPE=chat-completions
-QWEN_OPENAI_COMPATIBLE_TIMEOUT_SECONDS=180
+CONTEXT_MAX_INPUT_TOKENS=24000
+CONTEXT_MAX_OUTPUT_TOKENS=4096
+CONTEXT_TOOL_RESULT_BUDGET_TOKENS=4000
 
-DEEPSEEK_OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DEEPSEEK_OPENAI_COMPATIBLE_API_KEY=
-DEEPSEEK_OPENAI_COMPATIBLE_MODEL=deepseek-v4-flash
-DEEPSEEK_OPENAI_COMPATIBLE_ENDPOINT_TYPE=chat-completions
-DEEPSEEK_OPENAI_COMPATIBLE_TIMEOUT_SECONDS=180
+TOOL_APPROVAL_ENABLED=true
+EVAL_ENABLED=true
 ```
 
-Windows 路径建议使用正斜杠，例如 `D:/Projects/coder-agent`。如果使用反斜杠，需要写成双反斜杠，例如 `D:\\Projects\\coder-agent`，否则 `.env[.properties]` 会把反斜杠当作转义字符，导致 workspaceRoot 被解析到错误目录。
-
-`POST /api/agent-runs` 中的 `model` 字段是服务端配置的模型 key，只能传 `qwen3.6-plus`、`glm-5`、`deepseek-v4-flash` 这类已配置 key。请求体不能传 `baseUrl` 或 `apiKey`，模型后端地址和密钥只允许来自服务端配置。
+Chat 模型 API Key 不再来自 `.env` 固定三模型配置，必须通过模型配置中心保存到数据库。Embedding 模型仍使用全局固定配置。
 
 ## 启动
 
+后端：
+
 ```powershell
-mvn -pl coder-agent-app -am clean package
-java -jar coder-agent-app\target\coder-agent.jar
+$env:JAVA_HOME='E:\Java\jdk-21.0.11'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+mvn -pl coder-agent-app -am spring-boot:run
 ```
 
-首版 Shell 工具只支持 Windows PowerShell。
-
-## 客户端
-
-第三版新增桌面客户端模块：
-
-```text
-coder-agent-client/
-```
-
-技术栈：
-
-- Tauri 2
-- React 18
-- TypeScript
-- Vite
-
-开发预览：
+客户端[自动启动后端]：
 
 ```powershell
 cd coder-agent-client
 npm install
-npm run dev
+npm run tauri dev
 ```
 
-前端验证：
+## 常用 API [curl测试]
+
+模型配置：
 
 ```powershell
+curl -X POST http://localhost:8080/api/model-providers `
+  -H "Content-Type: application/json" `
+  -d '{ "modelKey":"glm-5", "displayName":"GLM-5", "baseUrl":"https://dashscope.aliyuncs.com/compatible-mode/v1", "apiKey":"<api-key>", "modelName":"glm-5", "endpointType":"chat-completions", "streamingEnabled":true, "toolCallingEnabled":true, "enabled":true, "defaultModel":true }'
+
+curl http://localhost:8080/api/model-providers?enabledOnly=true
+```
+
+创建运行：
+
+```powershell
+curl -X POST http://localhost:8080/api/agent-runs `
+  -H "Content-Type: application/json" `
+  -d '{ "workspaceKey":"agent-test-demo", "task":"阅读当前仓库并简要说明模块结构。", "model":"glm-5", "permissionLevel":"L1" }'
+```
+
+SSE：
+
+```powershell
+curl http://localhost:8080/api/agent-runs/{runId}/events
+```
+
+审批：
+
+```powershell
+curl http://localhost:8080/api/tool-approvals?workspaceKey=agent-test-demo
+
+curl -X POST http://localhost:8080/api/tool-approvals/{approvalId}/approve `
+  -H "Content-Type: application/json" `
+  -d '{ "reason":"确认允许本次高风险操作" }'
+
+curl -X POST http://localhost:8080/api/tool-approvals/{approvalId}/reject `
+  -H "Content-Type: application/json" `
+  -d '{ "reason":"不允许修改该文件" }'
+```
+
+Eval：
+
+```powershell
+curl -X POST http://localhost:8080/api/evals/runs `
+  -H "Content-Type: application/json" `
+  -d '{ "workspaceKey":"agent-test-demo", "modelKeys":["glm-5"] }'
+```
+
+## 验证
+
+```powershell
+mvn -pl coder-agent-app -am test
+
 cd coder-agent-client
 npm test
 npm run build
+
+cd ..
+openspec validate enhance-agent-harness-v4
 ```
 
-Tauri 原生打包需要本机安装 Rust/Cargo：
+## 回滚边界
 
-```powershell
-cd coder-agent-client
-npm run tauri build
-```
-
-客户端默认连接 `http://127.0.0.1:8080`，也支持在界面右侧修改后端地址。Tauri 桌面环境会自动检测后端状态，离线时尝试通过本地命令启动 `java -jar`，关闭客户端窗口时会停止由本客户端托管的后端进程。浏览器预览模式只保留连接已有后端。
-
-客户端覆盖：
-
-- workspace 创建、列表、停用
-- 会话创建、列表、消息历史
-- 模型选择：`glm-5`、`qwen3.6-plus`、`deepseek-v4-flash`
-- 权限等级选择和风险提示
-- Agent Run 创建、取消、刷新
-- SSE 运行事件订阅，用于驱动运行中状态同步和临时消息进度
-- 运行详情、工件列表、测试状态、commit hash、PR 草稿和 rollback 材料路径展示
-
-## API 示例
-
-注册 workspace：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/workspaces `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"rootPath\":\"E:/Projects/demo\"}"
-```
-
-查询 workspace：
-
-```powershell
-curl http://127.0.0.1:8080/api/workspaces
-curl http://127.0.0.1:8080/api/workspaces/demo
-```
-
-停用 workspace：
-
-```powershell
-curl -X DELETE http://127.0.0.1:8080/api/workspaces/demo
-```
-
-创建运行，使用默认模型：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/agent-runs `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"coder-agent\",\"task\":\"请阅读仓库结构并说明这个项目的模块职责\"}"
-```
-
-查询权限等级：
-
-```powershell
-curl http://127.0.0.1:8080/api/permission-levels
-```
-
-创建会话：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/conversations `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"title\":\"修复计算器\",\"defaultModel\":\"glm-5\",\"defaultPermissionLevel\":\"L2_SAFE_EDIT\"}"
-```
-
-查询会话与消息：
-
-```powershell
-curl http://127.0.0.1:8080/api/conversations?workspaceKey=demo
-curl http://127.0.0.1:8080/api/conversations/{conversationId}
-curl http://127.0.0.1:8080/api/conversations/{conversationId}/messages
-```
-
-创建 L2 安全编辑运行：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/agent-runs `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"conversationId\":\"{conversationId}\",\"model\":\"glm-5\",\"permissionLevel\":\"L2_SAFE_EDIT\",\"task\":\"请新增一个 docs/agent-note.md 并运行 mvn test\"}"
-```
-
-创建 L3 仓库写入运行，允许覆盖/删除文件、本地分支和本地 commit：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/agent-runs `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"demo\",\"conversationId\":\"{conversationId}\",\"model\":\"glm-5\",\"permissionLevel\":\"L3_REPO_WRITE\",\"task\":\"请修复 Calculator 测试，必要时覆盖或删除无用文件，完成后创建本地 commit 并生成 PR 草稿\"}"
-```
-
-创建运行，指定模型 key：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/agent-runs `
-  -H "Content-Type: application/json" `
-  -d "{\"workspaceKey\":\"coder-agent\",\"model\":\"deepseek-v4-flash\",\"task\":\"请阅读仓库结构并说明这个项目的模块职责\"}"
-```
-
-查询运行：
-
-```powershell
-curl http://127.0.0.1:8080/api/agent-runs/{runId}
-```
-
-查询 trace：
-
-```powershell
-curl http://127.0.0.1:8080/api/agent-runs/{runId}/trace
-```
-
-订阅 SSE 运行事件：
-
-```powershell
-curl -N http://127.0.0.1:8080/api/agent-runs/{runId}/events
-```
-
-取消运行：
-
-```powershell
-curl -X POST http://127.0.0.1:8080/api/agent-runs/{runId}/cancel
-```
-
-## 工具白名单
-
-工具：
-
-- `list_files`
-- `read_file`
-- `search_text`
-- `run_shell`
-- `apply_patch`：`L2_SAFE_EDIT` 及以上可见，只能修改已有文本文件。
-- `write_file`：`L2_SAFE_EDIT` 及以上可见，只能新建文本文件，不覆盖已有文件。
-- `overwrite_file`：仅 `L3_REPO_WRITE` 可见，覆盖已有文本文件。
-- `delete_file`：仅 `L3_REPO_WRITE` 可见，删除普通文本文件。
-
-权限等级：
-
-- `L1_READ_ONLY`：读取、搜索、列目录、Git 只读命令。
-- `L2_SAFE_EDIT`：L1 + 新增文件、patch 修改、测试/构建。
-- `L3_REPO_WRITE`：L2 + 覆盖文件、删除文件、本地分支、`git add`、`git commit`、PR 草稿和回滚材料。
-
-默认允许命令前缀：
-
-- `git status`
-- `git diff`
-- `git log`
-- `git checkout -b`
-- `git add`
-- `git commit`
-- `mvn test`
-- `mvn -q test`
-- `mvn clean test`
-- `mvn package`
-- `mvn clean package`
-- `mvn -pl`
-- `java -version`
-
-包含 `&&`、`|`、重定向、删除、移动、`git reset`、`git push`、`git clean` 等高风险 token 的命令会被拒绝。即使处于 `L3_REPO_WRITE`，`git push`、`git clean`、`git reset --hard` 仍会被拒绝。
-
-编辑受保护路径：
-
-- `.env`、`.env.*`
-- `.git/`
-- `.coder/`
-- `target/`
-- 文件名包含 `secret`、`token`、`password`、`credential` 或常见私钥文件名
-
-## 工件
-
-每次运行会写入：
-
-```text
-{workspaceRoot}/.coder/runs/{runId}/run-meta.json
-{workspaceRoot}/.coder/runs/{runId}/trace.jsonl
-{workspaceRoot}/.coder/runs/{runId}/context-snapshot/*.json
-{workspaceRoot}/.coder/runs/{runId}/tool-output/*.txt
-{workspaceRoot}/.coder/runs/{runId}/final-result.json
-```
-
-发生编辑或测试/构建后还会写入：
-
-```text
-{workspaceRoot}/.coder/runs/{runId}/patch.diff
-{workspaceRoot}/.coder/runs/{runId}/changed-files.json
-{workspaceRoot}/.coder/runs/{runId}/test-report.json
-{workspaceRoot}/.coder/runs/{runId}/review-summary.md
-{workspaceRoot}/.coder/runs/{runId}/rollback.patch
-{workspaceRoot}/.coder/runs/{runId}/file-backup/*
-{workspaceRoot}/.coder/runs/{runId}/pull-request.md
-```
-
-`final-result.json` 会包含 `permissionLevel`、`conversationId`、`changed`、`changedFileCount`、`testStatus`、`gitBranch`、`commitHash`、`prDraftPath`、`rollbackArtifacts` 和新增审查工件路径。
-
-## 真实 API 冒烟验证
-
-补齐 MySQL、OpenAI-compatible 和 workspace 配置后，可以创建一个本地仓库分析任务。验收点：
-
-- `agent_run` 进入 `SUCCEEDED`，或模型不可用时进入 `FAILED`。
-- `model_call` 至少有一条真实模型调用记录。
-- `trace.jsonl` 可以逐行解析。
-- `final-result.json` 包含 `status`、`model`、`actual_model`、`permissionLevel`、`attempts`、`tool_steps`、`model_calls`、`tool_calls`、`duration`。
-
-## 回滚方案
-
-- 停止 `coder-agent-app` 服务。
-- 停止使用 `/api/conversations`、`/api/permission-levels`、`/api/agent-runs/{runId}/events` 和 `permissionLevel=L2/L3`。
-- 将新任务默认限制为 `L1_READ_ONLY`。
-- 从工具注册中移除 `overwrite_file`、`delete_file` 和 L3 Git 写入能力，必要时仅保留只读工具。
-- 保留第三版新增表/字段但不再写入；必要时执行 SQL 中的第三版回滚语句删除新增表/列。
-- 如需清理测试数据，删除 MySQL 中对应 `run_id` 的运行记录，并删除 workspace 下 `.coder/runs/{runId}/` 工件目录。
+- `MEMORY_ENABLED=false` 可停用结构化记忆流程。
+- `PGVECTOR_ENABLED=false` 可停用 pgvector 向量召回，系统降级为无向量记忆。
+- `TOOL_APPROVAL_ENABLED=false` 可停用人工审批，仍保留基础工具治理。
+- `EVAL_ENABLED=false` 可停用 eval API 与报告生成。
+- v4 不保留静态三模型白名单和非流式一次性结果输出的兼容分支；如需恢复，只能通过代码回滚。

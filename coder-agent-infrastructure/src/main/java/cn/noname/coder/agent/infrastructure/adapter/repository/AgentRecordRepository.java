@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -117,5 +118,17 @@ public class AgentRecordRepository implements IAgentRecordRepository {
                         .createdAt(po.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    @Override
+    public void deleteByRunIds(Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return;
+        }
+        stepDao.delete(new LambdaQueryWrapper<AgentStepPO>().in(AgentStepPO::getRunId, runIds));
+        modelCallDao.delete(new LambdaQueryWrapper<ModelCallPO>().in(ModelCallPO::getRunId, runIds));
+        toolCallDao.delete(new LambdaQueryWrapper<ToolCallPO>().in(ToolCallPO::getRunId, runIds));
+        auditEventDao.delete(new LambdaQueryWrapper<AuditEventPO>().in(AuditEventPO::getRunId, runIds));
+        runArtifactDao.delete(new LambdaQueryWrapper<RunArtifactPO>().in(RunArtifactPO::getRunId, runIds));
     }
 }

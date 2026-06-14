@@ -1,312 +1,459 @@
 package cn.noname.coder.agent.cases.agent.impl;
 
-import cn.noname.coder.agent.api.dto.CreateAgentRunRequestDTO;
+import cn.noname.coder.agent.cases.context.ContextBudgetResolver;
+import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
+import cn.noname.coder.agent.domain.agent.adapter.port.IContextEngine;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelGateway;
+import cn.noname.coder.agent.domain.agent.adapter.port.IStreamingModelGateway;
 import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.*;
-import cn.noname.coder.agent.domain.agent.model.valobj.*;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
+import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
+import cn.noname.coder.agent.domain.agent.model.entity.ToolApprovalRequest;
+import cn.noname.coder.agent.domain.agent.model.entity.ToolCall;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextAssemblyResult;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextCandidate;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEvent;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEventType;
+import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.ArtifactType;
 import cn.noname.coder.agent.types.enums.CallStatus;
-import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.task.SyncTaskExecutor;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AgentRunExecutorTest {
 
     @Test
-    void shouldCreateRunGivenConfiguredModelKey() {
-        // Given 请求指定了已配置的模型 key
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
-                new StubModelConfigPort(), new AgentRuntimeProperties(), executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
-                new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
+    void shouldSaveStreamingDraftAsFinalAgentMessageGivenModelReturnsAnswer() {
+        TestHarness harness = new TestHarness(newRun("run_stream"));
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "hello ", null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "world", null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
 
-        // When 创建运行
-        var response = createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "glm-5", null, null, null));
+        harness.executor.execute("run_stream");
 
-        // Then 保存模型 key
-        AgentRun saved = runRepository.findByRunId(response.runId()).orElseThrow();
-        assertEquals("glm-5", saved.getModel());
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(harness.conversationRepository).saveMessage(messageCaptor.capture());
+        assertEquals("hello world", messageCaptor.getValue().getContent());
+        assertEquals("", harness.draftService.content("run_stream"));
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
     }
 
     @Test
-    void shouldRejectCreateRunGivenUnknownModelKey() {
-        // Given 请求指定了未配置的模型 key
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
-                new StubModelConfigPort(), new AgentRuntimeProperties(), executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
-                new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
+    void shouldKeepVisibleDraftGivenRunCancelledDuringStreaming() {
+        TestHarness harness = new TestHarness(newRun("run_cancel"));
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            harness.runRef.get().setStatus(AgentRunStatus.CANCELLED);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "partial answer", null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
 
-        // When 创建运行 / Then 拒绝且不写入 agent_run
-        AppException ex = assertThrows(AppException.class, () ->
-                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", "unknown", null, null, null)));
-        assertEquals("MODEL_NOT_CONFIGURED", ex.getCode());
-        assertEquals(0, runRepository.runs.size());
+        harness.executor.execute("run_cancel");
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(harness.conversationRepository).saveMessage(messageCaptor.capture());
+        assertEquals("partial answer", messageCaptor.getValue().getContent());
+        assertEquals(AgentRunStatus.CANCELLED, harness.runRef.get().getStatus());
     }
 
     @Test
-    void shouldSucceedGivenModelReturnsFinalAnswer() {
-        // Given 模型直接返回最终结论
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_success", 20, 8, 16, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", "分析完成", List.of(), "final"),
-                new NoopToolGateway(), new StubArtifactPort(), false);
+    void shouldNotPersistPlanningDraftGivenToolCallingLoopFailsByBudget() {
+        AgentRun run = newRun("run_tool_loop");
+        run.setMaxModelCalls(2);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "planning call " + call, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "read_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "read_file",
+                    "{\"path\":\"pom.xml\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_" + call, "read_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "ok", "ok", 0, null));
 
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
+        harness.executor.execute("run_tool_loop");
 
-        // Then 运行成功结束并记录模型调用与 final-result 工件
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.SUCCEEDED, saved.getStatus());
-        assertEquals("分析完成", saved.getFinalAnswer());
-        assertEquals(1, recordRepository.modelCalls.size());
-        assertTrue(recordRepository.artifacts.stream().anyMatch(v -> v.getArtifactType() == ArtifactType.FINAL_RESULT));
+        verify(harness.conversationRepository, never()).saveMessage(any());
+        assertEquals("", harness.draftService.content("run_tool_loop"));
+        assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
+        assertEquals(2, calls.get());
     }
 
     @Test
-    void shouldFailGivenModelCallBudgetExhausted() {
-        // Given 模型调用预算为 0
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_budget", 20, 0, 16, 300);
-        runRepository.save(run);
-        CountingModelGateway modelGateway = new CountingModelGateway(new ModelResponse("resp_1", "不应调用", List.of(), "final"));
-        AgentRunExecutor executor = executor(runRepository, recordRepository, modelGateway,
-                new NoopToolGateway(), new StubArtifactPort(), false);
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 运行失败且不会调用模型
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
-        assertEquals(0, modelGateway.calls);
-        assertTrue(recordRepository.auditEvents.stream().anyMatch(v -> "BUDGET_EXHAUSTED".equals(v.getEventType().name())));
-    }
-
-    @Test
-    void shouldCancelGivenRepositoryStatusChangedToCancelled() {
-        // Given 运行在预算检查时被外部取消
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_cancel", 20, 8, 16, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", "不应调用", List.of(), "final"),
-                new NoopToolGateway(), new StubArtifactPort(), true);
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 运行进入取消状态并写入 final-result
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.CANCELLED, saved.getStatus());
-        assertTrue(recordRepository.artifacts.stream().anyMatch(v -> v.getArtifactType() == ArtifactType.FINAL_RESULT));
-    }
-
-    @Test
-    void shouldKeepCancelledGivenCancellationHappensDuringModelCall() {
-        // Given 模型调用期间外部取消了运行
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_cancel_during_model", 20, 8, 16, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> {
-                    runRepository.cancel(request.runId());
-                    return new ModelResponse("resp_1", "不应覆盖为成功", List.of(), "final");
-                },
-                new NoopToolGateway(), new StubArtifactPort(), false);
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 最终状态保持取消，不会被模型最终回答覆盖成成功
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.CANCELLED, saved.getStatus());
-        assertNull(saved.getFinalAnswer());
-    }
-
-    @Test
-    void shouldSaveCancellationFeedbackGivenRunCancelled() {
-        // Given 带对话的运行在模型调用期间被取消
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        InMemoryConversationRepository conversationRepository = new InMemoryConversationRepository();
-        AgentRun run = newRun("run_cancel_message", 20, 8, 16, 300);
-        run.setConversationId("conv_1");
-        runRepository.save(run);
-        AgentRunExecutor executor = new AgentRunExecutor(runRepository, recordRepository, conversationRepository,
-                new StubWorkspacePort(false), new StubModelConfigPort(), request -> {
-            runRepository.cancel(request.runId());
-            return new ModelResponse("resp_1", "不应保存", List.of(), "final");
-        }, new NoopToolGateway(), new StubArtifactPort(), new NoopEventPublisher(), new AgentRuntimeProperties());
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 取消会生成一条可展示的 Agent 反馈，避免前端最终消息消失
-        assertEquals(AgentRunStatus.CANCELLED, runRepository.findByRunId(run.getRunId()).orElseThrow().getStatus());
-        assertEquals(1, conversationRepository.messages.size());
-        assertEquals("任务已取消", conversationRepository.messages.getFirst().getContent());
-    }
-
-    @Test
-    void shouldFailGivenModelRequestsToolButToolBudgetIsExhausted() {
-        // Given 模型请求工具，但工具预算为 0
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_tool_budget_zero", 20, 8, 0, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", null,
-                        List.of(new ToolInvocation("tool_1", "list_files", "{}")), "tool call"),
-                new NoopToolGateway(), new StubArtifactPort(), false);
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 运行必须进入终态，不能停留在 RUNNING
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
-        assertTrue(saved.getFailureReason().contains("工具"));
-    }
-
-    @Test
-    void shouldFailGivenModelGatewayThrowsException() {
-        // Given 模型网关异常
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_failed", 20, 8, 16, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> {
-                    throw new IllegalStateException("model unavailable");
-                },
-                new NoopToolGateway(), new StubArtifactPort(), false);
-
-        // When 执行 Agent 循环
-        executor.execute(run.getRunId());
-
-        // Then 运行失败且记录失败的模型调用
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
-        assertTrue(saved.getFailureReason().contains("model unavailable"));
-        assertEquals(CallStatus.FAILED, recordRepository.modelCalls.getFirst().getStatus());
-    }
-
-    @Test
-    void shouldFailGivenModelGatewayThrowsError() {
-        // Given 模型网关抛出 Error，模拟后台线程非 Exception 异常
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRun run = newRun("run_error", 20, 8, 16, 300);
-        runRepository.save(run);
-        AgentRunExecutor executor = executor(runRepository, recordRepository,
-                request -> {
-                    throw new AssertionError("fatal model error");
-                },
-                new NoopToolGateway(), new StubArtifactPort(), false);
-
-        // When 执行 Agent 循环
-        assertDoesNotThrow(() -> executor.execute(run.getRunId()));
-
-        // Then 运行不能停留在 RUNNING
-        AgentRun saved = runRepository.findByRunId(run.getRunId()).orElseThrow();
-        assertEquals(AgentRunStatus.FAILED, saved.getStatus());
-        assertTrue(saved.getFailureReason().contains("fatal model error"));
-    }
-
-    @Test
-    void shouldRejectCreateRunGivenConcurrentLimitReached() {
-        // Given 当前已达到并发上限
-        InMemoryRunRepository runRepository = new InMemoryRunRepository();
-        InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
-        AgentRuntimeProperties properties = new AgentRuntimeProperties();
-        properties.getBudget().setMaxConcurrentRuns(1);
-        properties.getModel().setModel("test-model");
-        runRepository.save(newRun("run_existing", 20, 8, 16, 300));
-        CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(
-                new StubWorkspacePort(false), runRepository, recordRepository, new InMemoryConversationRepository(), new StubArtifactPort(),
-                new StubModelConfigPort(), properties, executor(runRepository, recordRepository,
-                request -> new ModelResponse("resp_1", "ok", List.of(), "ok"),
-                new NoopToolGateway(), new StubArtifactPort(), false), new SyncTaskExecutor());
-
-        // When 创建新运行 / Then 返回并发限制错误
-        AppException ex = assertThrows(AppException.class, () ->
-                createCase.create(new CreateAgentRunRequestDTO("coder-agent", "分析仓库", null, null, null, null)));
-        assertEquals("CONCURRENT_LIMIT", ex.getCode());
-    }
-
-    static class StubModelConfigPort implements IModelConfigPort {
-        private final Set<String> modelKeys = Set.of("test-model", "glm-5", "qwen3.6-plus", "deepseek-v4-flash");
-
-        @Override
-        public ModelBackendConfig defaultModel() {
-            return config("test-model");
-        }
-
-        @Override
-        public Optional<ModelBackendConfig> resolve(String modelKey) {
-            if (modelKey == null || modelKey.isBlank()) {
-                return Optional.of(defaultModel());
+    @SuppressWarnings("unchecked")
+    void shouldProvideStructuredToolObservationGivenReadFileReturnsEmptyContent() {
+        AgentRun run = newRun("run_empty_file");
+        run.setMaxModelCalls(2);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "read_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "read_file",
+                        "{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}", null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "empty file observed", null, null, null, null));
             }
-            return modelKeys.contains(modelKey) ? Optional.of(config(modelKey)) : Optional.empty();
-        }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "", "", 0, null));
 
-        private ModelBackendConfig config(String modelKey) {
-            return new ModelBackendConfig(modelKey, "openai-compatible", modelKey,
-                    "https://example.test/v1", "test-key", "chat-completions", 0.2, 60);
-        }
+        harness.executor.execute("run_empty_file");
+
+        ArgumentCaptor<List<ContextCandidate>> candidatesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(harness.contextEngine, org.mockito.Mockito.atLeast(2)).assemble(candidatesCaptor.capture(), any());
+        String secondCallContext = candidatesCaptor.getAllValues().get(1).stream()
+                .map(ContextCandidate::content)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(secondCallContext.contains("TOOL_OBSERVATION"));
+        assertTrue(secondCallContext.contains("tool=read_file"));
+        assertTrue(secondCallContext.contains("\"path\":\"src/test/java/cn/noname/SimpleTest.java\""));
+        assertTrue(secondCallContext.contains("status=SUCCESS"));
+        assertTrue(secondCallContext.contains("tool returned no visible content"));
     }
 
-    private AgentRunExecutor executor(InMemoryRunRepository runRepository,
-                                      InMemoryRecordRepository recordRepository,
-                                      IModelGateway modelGateway,
-                                      IToolGateway toolGateway,
-                                      IArtifactPort artifactPort,
-                                      boolean cancelOnSecondFind) {
-        runRepository.cancelOnSecondFind = cancelOnSecondFind;
-        return new AgentRunExecutor(runRepository, recordRepository, new InMemoryConversationRepository(), new StubWorkspacePort(false),
-                new StubModelConfigPort(), modelGateway, toolGateway, artifactPort,
-                new NoopEventPublisher(), new AgentRuntimeProperties());
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldKeepLatestToolObservationRequiredGivenToolResultFeedsNextModelCall() {
+        AgentRun run = newRun("run_required_tool_observation");
+        run.setMaxModelCalls(2);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "list_files", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "list_files",
+                        "{\"path\":\"E:\\\\IdeaProjects\\\\coder-agent\\\\sandbox-projects\\\\agent-test-demo\\\\src\\\\test\\\\java\"}", null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "saw directory result", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "[D] cn\n[F] demoTest.java\n", "[D] cn\n[F] demoTest.java\n", 0, null));
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<List<ContextCandidate>> candidatesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(harness.contextEngine, org.mockito.Mockito.atLeast(2)).assemble(candidatesCaptor.capture(), any());
+        ContextCandidate toolObservation = candidatesCaptor.getAllValues().stream()
+                .flatMap(List::stream)
+                .filter(candidate -> candidate.content().contains("TOOL_OBSERVATION"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(toolObservation.required());
+        assertTrue(toolObservation.content().contains("tool call completed"));
+        assertTrue(toolObservation.content().contains("Do not call the same tool"));
+        assertTrue(toolObservation.content().contains("[F] demoTest.java"));
     }
 
-    private AgentRun newRun(String runId, int maxSteps, int maxModelCalls, int maxToolCalls, int timeoutSeconds) {
+    @Test
+    void shouldSendStructuredToolProtocolGivenToolResultFeedsNextModelCall() {
+        AgentRun run = newRun("run_tool_protocol");
+        run.setMaxModelCalls(2);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "call_1", "list_files", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "call_1", "list_files",
+                        "{\"path\":\"src/test/java\"}", null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "done", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "[D] cn\n[F] demoTest.java", "[D] cn\n[F] demoTest.java", 0, null));
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<ModelRequest> requestCaptor = ArgumentCaptor.forClass(ModelRequest.class);
+        verify(harness.streamingModelGateway, org.mockito.Mockito.atLeast(2)).stream(requestCaptor.capture(), any());
+        ModelRequest secondRequest = requestCaptor.getAllValues().get(1);
+        assertEquals("assistant", secondRequest.protocolMessages().get(1).role());
+        assertEquals("call_1", secondRequest.protocolMessages().get(1).toolCalls().getFirst().id());
+        assertEquals("tool", secondRequest.protocolMessages().get(2).role());
+        assertEquals("call_1", secondRequest.protocolMessages().get(2).toolCallId());
+        assertTrue(secondRequest.protocolMessages().get(2).content().contains("[F] demoTest.java"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldNotAppendDuplicateToolObservationGivenSameToolAndArgumentsRepeated() {
+        AgentRun run = newRun("run_duplicate_observation");
+        run.setMaxModelCalls(3);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call <= 2) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "read_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "read_file",
+                        "{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}", null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "file content read", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "文件内容：src/test/java/cn/noname/SimpleTest.java", "", 0, null));
+
+        harness.executor.execute("run_duplicate_observation");
+
+        ArgumentCaptor<List<ContextCandidate>> candidatesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(harness.contextEngine, org.mockito.Mockito.atLeast(2)).assemble(candidatesCaptor.capture(), any());
+        long observationCount = candidatesCaptor.getAllValues().get(1).stream()
+                .map(ContextCandidate::content)
+                .filter(content -> content.contains("TOOL_OBSERVATION") && content.contains("tool=read_file"))
+                .count();
+        assertEquals(1, observationCount);
+        assertEquals(3, calls.get());
+    }
+
+    @Test
+    void shouldReusePendingApprovalGivenSameHighRiskToolRequestedAgain() {
+        AgentRun run = newRun("run_pending_approval");
+        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        TestHarness harness = new TestHarness(run);
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "delete_file",
+                    "{\"path\":\"src\\\\test\\\\java\\\\cn\\\\noname\\\\SimpleTest.java\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolApprovalRepository.findPending(eq("run_pending_approval"), eq("delete_file"),
+                eq("{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}")))
+                .thenReturn(Optional.of(ToolApprovalRequest.builder().approvalId("apv_1").riskSummary("delete file").status("PENDING").build()));
+
+        harness.executor.execute("run_pending_approval");
+
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, harness.runRef.get().getStatus());
+        verify(harness.toolApprovalRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRecordToolCallGivenHighRiskToolWaitsApproval() {
+        AgentRun run = newRun("run_waiting_approval_record");
+        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        TestHarness harness = new TestHarness(run);
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "delete_file",
+                    "{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute("run_waiting_approval_record");
+
+        ArgumentCaptor<ToolCall> toolCallCaptor = ArgumentCaptor.forClass(ToolCall.class);
+        verify(harness.recordRepository).saveToolCall(toolCallCaptor.capture());
+        assertEquals("delete_file", toolCallCaptor.getValue().getToolName());
+        assertEquals(CallStatus.WAITING_APPROVAL, toolCallCaptor.getValue().getStatus());
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, harness.runRef.get().getStatus());
+    }
+
+    @Test
+    void shouldExecuteApprovedToolBeforeNextModelCallGivenRunResumedFromApproval() {
+        AgentRun run = newRun("run_approved_tool_resume");
+        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        TestHarness harness = new TestHarness(run);
+        ToolApprovalRequest approval = ToolApprovalRequest.builder()
+                .approvalId("apv_resume")
+                .runId(run.getRunId())
+                .workspaceKey(run.getWorkspaceKey())
+                .toolName("delete_file")
+                .argumentsJson("{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}")
+                .status("APPROVED")
+                .build();
+        when(harness.toolApprovalRepository.listApprovedPendingExecution(run.getRunId()))
+                .thenReturn(List.of(approval));
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "已删除文件 src/test/java/cn/noname/SimpleTest.java", "", 0, null));
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "done", null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<ToolInvocation> invocationCaptor = ArgumentCaptor.forClass(ToolInvocation.class);
+        verify(harness.toolGateway).execute(any(AgentRun.class), any(), invocationCaptor.capture());
+        assertEquals("delete_file", invocationCaptor.getValue().name());
+        assertEquals("{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}", invocationCaptor.getValue().argumentsJson());
+        verify(harness.toolApprovalRepository).markExecuted("apv_resume");
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+    }
+
+    @Test
+    void shouldFailGivenSameToolArgumentsRepeatedAfterSuccessfulObservation() {
+        AgentRun run = newRun("run_repeated_tool_guard");
+        run.setMaxModelCalls(5);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "call " + call, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "read_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "read_file",
+                    "{\"path\":\"src/test/java/cn/noname/SimpleTest.java\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_" + call, "read_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "读取成功", "", 0, null));
+
+        harness.executor.execute("run_repeated_tool_guard");
+
+        assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
+        assertTrue(harness.runRef.get().getFailureReason().contains("重复工具调用无法继续推进"));
+        assertEquals(3, calls.get());
+    }
+
+    @Test
+    void shouldFailImmediatelyGivenShellCommandTimeout() {
+        AgentRun run = newRun("run_shell_timeout");
+        run.setPermissionLevel(AgentPermissionLevel.L2_SAFE_EDIT);
+        run.setMaxModelCalls(5);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            calls.incrementAndGet();
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "run_shell",
+                    "{\"command\":\"mvn -q test\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.FAILED, "命令超时: mvn -q test", "", 124, "TIMEOUT"));
+
+        harness.executor.execute(run.getRunId());
+
+        assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
+        assertTrue(harness.runRef.get().getFailureReason().contains("Shell command timeout"));
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void shouldFailGivenConsecutiveRejectedTools() {
+        AgentRun run = newRun("run_rejected_tools");
+        run.setPermissionLevel(AgentPermissionLevel.L2_SAFE_EDIT);
+        run.setMaxModelCalls(5);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "run_shell",
+                    "{\"command\":\"bad-command-" + call + "\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.REJECTED, "command is not allowed", "", 1, "COMMAND_NOT_ALLOWED"));
+
+        harness.executor.execute(run.getRunId());
+
+        assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
+        assertTrue(harness.runRef.get().getFailureReason().contains("Consecutive tool calls rejected"));
+        assertEquals(2, calls.get());
+    }
+
+    private static AgentRun newRun(String runId) {
         return AgentRun.builder()
                 .runId(runId)
-                .workspaceKey("coder-agent")
-                .task("分析仓库")
-                .model("test-model")
+                .workspaceKey("demo")
+                .conversationId("conv_1")
+                .task("test task")
+                .model("glm-5")
                 .status(AgentRunStatus.CREATED)
-                .maxSteps(maxSteps)
-                .maxModelCalls(maxModelCalls)
-                .maxToolCalls(maxToolCalls)
-                .timeoutSeconds(timeoutSeconds)
+                .maxSteps(5)
+                .maxModelCalls(5)
+                .maxToolCalls(5)
+                .timeoutSeconds(60)
                 .stepCount(0)
                 .modelCallCount(0)
                 .toolCallCount(0)
@@ -314,289 +461,69 @@ class AgentRunExecutorTest {
                 .build();
     }
 
-    static class InMemoryRunRepository implements IAgentRunRepository {
-        private final Map<String, AgentRun> runs = new LinkedHashMap<>();
-        private boolean cancelOnSecondFind;
-        private final Map<String, Integer> findCounts = new HashMap<>();
-
-        @Override
-        public void save(AgentRun run) {
-            runs.put(run.getRunId(), cloneRun(run));
-        }
-
-        @Override
-        public void update(AgentRun run) {
-            runs.put(run.getRunId(), cloneRun(run));
-        }
-
-        @Override
-        public Optional<AgentRun> findByRunId(String runId) {
-            int count = findCounts.merge(runId, 1, Integer::sum);
-            AgentRun run = runs.get(runId);
-            if (cancelOnSecondFind && count >= 2 && run != null) {
-                run.setStatus(AgentRunStatus.CANCELLED);
-            }
-            return Optional.ofNullable(run).map(this::cloneRun);
-        }
-
-        void cancel(String runId) {
-            AgentRun run = runs.get(runId);
-            if (run != null) {
-                run.setStatus(AgentRunStatus.CANCELLED);
-            }
-        }
-
-        @Override
-        public long countByStatuses(Collection<AgentRunStatus> statuses) {
-            return runs.values().stream().filter(v -> statuses.contains(v.getStatus())).count();
-        }
-
-        private AgentRun cloneRun(AgentRun run) {
-            return AgentRun.builder()
-                    .id(run.getId())
-                    .runId(run.getRunId())
-                    .workspaceKey(run.getWorkspaceKey())
-                    .conversationId(run.getConversationId())
-                    .task(run.getTask())
-                    .model(run.getModel())
-                    .permissionLevel(run.getPermissionLevel())
-                    .sourceMessageId(run.getSourceMessageId())
-                    .status(run.getStatus())
-                    .finalAnswer(run.getFinalAnswer())
-                    .failureReason(run.getFailureReason())
-                    .gitBranch(run.getGitBranch())
-                    .commitHash(run.getCommitHash())
-                    .maxSteps(run.getMaxSteps())
-                    .maxModelCalls(run.getMaxModelCalls())
-                    .maxToolCalls(run.getMaxToolCalls())
-                    .timeoutSeconds(run.getTimeoutSeconds())
-                    .stepCount(run.getStepCount())
-                    .modelCallCount(run.getModelCallCount())
-                    .toolCallCount(run.getToolCallCount())
-                    .createdAt(run.getCreatedAt())
-                    .startedAt(run.getStartedAt())
-                    .endedAt(run.getEndedAt())
-                    .durationMs(run.getDurationMs())
-                    .build();
-        }
+    private static RunArtifact artifact(String runId, ArtifactType type) {
+        return RunArtifact.builder()
+                .runId(runId)
+                .artifactType(type)
+                .relativePath(".coder/runs/" + runId + "/" + type.name().toLowerCase() + ".json")
+                .fileSize(1L)
+                .createdAt(LocalDateTime.now())
+                .build();
     }
 
-    static class InMemoryRecordRepository implements IAgentRecordRepository {
-        private final List<AgentStep> steps = new ArrayList<>();
-        private final LinkedList<ModelCall> modelCalls = new LinkedList<>();
-        private final List<ToolCall> toolCalls = new ArrayList<>();
-        private final List<AuditEvent> auditEvents = new ArrayList<>();
-        private final List<RunArtifact> artifacts = new ArrayList<>();
+    private static class TestHarness {
+        private final AtomicReference<AgentRun> runRef;
+        private final IStreamingModelGateway streamingModelGateway = mock(IStreamingModelGateway.class);
+        private final IAgentConversationRepository conversationRepository = mock(IAgentConversationRepository.class);
+        private final IToolGateway toolGateway = mock(IToolGateway.class);
+        private final IToolApprovalRepository toolApprovalRepository = mock(IToolApprovalRepository.class);
+        private final IAgentRecordRepository recordRepository = mock(IAgentRecordRepository.class);
+        private final IContextEngine contextEngine = mock(IContextEngine.class);
+        private final AgentRunDraftService draftService;
+        private final AgentRunExecutor executor;
 
-        @Override
-        public void saveStep(AgentStep step) {
-            steps.add(step);
+        private TestHarness(AgentRun run) {
+            this.runRef = new AtomicReference<>(run);
+            IAgentRunRepository runRepository = mock(IAgentRunRepository.class);
+            IContextSnapshotRepository contextSnapshotRepository = mock(IContextSnapshotRepository.class);
+            IWorkspacePort workspacePort = mock(IWorkspacePort.class);
+            IModelConfigPort modelConfigPort = mock(IModelConfigPort.class);
+            IArtifactPort artifactPort = mock(IArtifactPort.class);
+            IAgentRunEventPublisher eventPublisher = mock(IAgentRunEventPublisher.class);
+            ContextBudgetResolver budgetResolver = mock(ContextBudgetResolver.class);
+            MemoryService memoryService = mock(MemoryService.class);
+            this.draftService = new AgentRunDraftService(runRepository);
+
+            when(runRepository.findByRunId(run.getRunId())).thenAnswer(ignored -> Optional.of(runRef.get()));
+            when(runRepository.countByStatuses(any())).thenReturn(0L);
+            when(workspacePort.resolve("demo")).thenReturn(Optional.of(new WorkspaceDescriptor("demo", Path.of(".").toAbsolutePath())));
+            when(modelConfigPort.resolve(anyString())).thenReturn(Optional.of(modelConfig()));
+            when(modelConfigPort.defaultModel()).thenReturn(modelConfig());
+            when(toolGateway.definitions(any(), any())).thenReturn(List.of());
+            when(toolApprovalRepository.listRejectedPendingReturn(anyString())).thenReturn(List.of());
+            when(toolApprovalRepository.listApproved(anyString())).thenReturn(List.of());
+            when(toolApprovalRepository.listApprovedPendingExecution(anyString())).thenReturn(List.of());
+            when(toolApprovalRepository.findPending(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+            when(toolApprovalRepository.findApproved(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+            when(conversationRepository.listMessages("conv_1")).thenReturn(List.of());
+            when(budgetResolver.resolve(any())).thenReturn(new ContextBudget(4096, 1024, 3000, 512, 512, 512, 512, 512));
+            when(budgetResolver.budgetSource(any())).thenReturn("TEST");
+            when(memoryService.recallForRun(any())).thenReturn(List.of());
+            when(contextEngine.assemble(any(), any())).thenReturn(new ContextAssemblyResult(
+                    List.of(), List.of(), List.of("system", "task"), 100, 80, 0.2, 0, 0, "TEST", null));
+            when(artifactPort.appendTrace(any(), anyString(), any())).thenAnswer(invocation -> artifact(invocation.getArgument(1), ArtifactType.TRACE));
+            when(artifactPort.writeContextSnapshot(any(), any(), anyInt(), any())).thenAnswer(invocation -> artifact(invocation.getArgument(1), ArtifactType.CONTEXT_SNAPSHOT));
+            when(artifactPort.writeFinalResult(any(), any(), any())).thenAnswer(invocation -> artifact(((AgentRun) invocation.getArgument(1)).getRunId(), ArtifactType.FINAL_RESULT));
+            when(artifactPort.writeReviewArtifacts(any(), any(), any(), any())).thenReturn(List.of());
+
+            this.executor = new AgentRunExecutor(runRepository, recordRepository, contextSnapshotRepository, conversationRepository,
+                    toolApprovalRepository, workspacePort, modelConfigPort, streamingModelGateway, toolGateway,
+                    artifactPort, eventPublisher, contextEngine, budgetResolver, memoryService, draftService, new AgentRuntimeProperties());
         }
 
-        @Override
-        public void saveModelCall(ModelCall modelCall) {
-            modelCalls.add(modelCall);
-        }
-
-        @Override
-        public void saveToolCall(ToolCall toolCall) {
-            toolCalls.add(toolCall);
-        }
-
-        @Override
-        public void saveAuditEvent(AuditEvent event) {
-            auditEvents.add(event);
-        }
-
-        @Override
-        public void saveArtifact(RunArtifact artifact) {
-            artifacts.add(artifact);
-        }
-
-        @Override
-        public List<AuditEvent> listAuditEvents(String runId) {
-            return auditEvents.stream().filter(v -> runId.equals(v.getRunId())).toList();
-        }
-
-        @Override
-        public List<RunArtifact> listArtifacts(String runId) {
-            return artifacts.stream().filter(v -> runId.equals(v.getRunId())).toList();
-        }
-    }
-
-    static class InMemoryConversationRepository implements IAgentConversationRepository {
-        private final Map<String, AgentConversation> conversations = new HashMap<>();
-        private final List<AgentMessage> messages = new ArrayList<>();
-        private final List<PermissionAudit> audits = new ArrayList<>();
-
-        @Override
-        public void saveConversation(AgentConversation conversation) {
-            conversations.put(conversation.getConversationId(), conversation);
-        }
-
-        @Override
-        public void updateConversation(AgentConversation conversation) {
-            conversations.put(conversation.getConversationId(), conversation);
-        }
-
-        @Override
-        public Optional<AgentConversation> findConversation(String conversationId) {
-            return Optional.ofNullable(conversations.get(conversationId));
-        }
-
-        @Override
-        public List<AgentConversation> listConversations(String workspaceKey) {
-            return conversations.values().stream().toList();
-        }
-
-        @Override
-        public void deleteConversation(String conversationId) {
-            conversations.remove(conversationId);
-        }
-
-        @Override
-        public void saveMessage(AgentMessage message) {
-            messages.add(message);
-        }
-
-        @Override
-        public Optional<AgentMessage> findMessage(String messageId) {
-            return messages.stream().filter(v -> messageId.equals(v.getMessageId())).findFirst();
-        }
-
-        @Override
-        public void updateMessage(AgentMessage message) {
-            deleteMessage(message.getMessageId());
-            messages.add(message);
-        }
-
-        @Override
-        public void deleteMessage(String messageId) {
-            messages.removeIf(v -> messageId.equals(v.getMessageId()));
-        }
-
-        @Override
-        public void deleteAgentMessagesByRunId(String runId) {
-            messages.removeIf(v -> runId != null && runId.equals(v.getRunId()) && "AGENT".equals(v.getRole()));
-        }
-
-        @Override
-        public void deleteMessagesByRunId(String runId) {
-            messages.removeIf(v -> runId != null && runId.equals(v.getRunId()));
-        }
-
-        @Override
-        public List<AgentMessage> listMessages(String conversationId) {
-            return messages.stream().filter(v -> conversationId.equals(v.getConversationId())).toList();
-        }
-
-        @Override
-        public void savePermissionAudit(PermissionAudit audit) {
-            audits.add(audit);
-        }
-    }
-
-    static class NoopEventPublisher implements IAgentRunEventPublisher {
-        @Override
-        public void publish(AgentRunEvent event) {
-        }
-
-        @Override
-        public List<AgentRunEvent> history(String runId) {
-            return List.of();
-        }
-
-        @Override
-        public java.util.concurrent.BlockingQueue<AgentRunEvent> subscribe(String runId) {
-            return new java.util.concurrent.LinkedBlockingQueue<>();
-        }
-
-        @Override
-        public void unsubscribe(String runId, java.util.concurrent.BlockingQueue<AgentRunEvent> queue) {
-        }
-    }
-
-    static class CountingModelGateway implements IModelGateway {
-        private final ModelResponse response;
-        private int calls;
-
-        CountingModelGateway(ModelResponse response) {
-            this.response = response;
-        }
-
-        @Override
-        public ModelResponse call(ModelRequest request) {
-            calls++;
-            return response;
-        }
-    }
-
-    record StubWorkspacePort(boolean missing) implements IWorkspacePort {
-        @Override
-        public Optional<WorkspaceDescriptor> resolve(String workspaceKey) {
-            if (missing) {
-                return Optional.empty();
-            }
-            return Optional.of(new WorkspaceDescriptor(workspaceKey, Path.of("E:/IdeaProjects/coder-agent").toAbsolutePath().normalize()));
-        }
-
-        @Override
-        public Path resolveInside(WorkspaceDescriptor workspace, String relativePath) {
-            return workspace.rootPath().resolve(relativePath).normalize();
-        }
-    }
-
-    static class NoopToolGateway implements IToolGateway {
-        @Override
-        public List<ToolDefinition> definitions() {
-            return List.of();
-        }
-
-        @Override
-        public ToolResult execute(String runId, WorkspaceDescriptor workspace, ToolInvocation invocation) {
-            return new ToolResult(CallStatus.SUCCESS, "ok", "ok", 0, null);
-        }
-    }
-
-    static class StubArtifactPort implements IArtifactPort {
-        @Override
-        public List<RunArtifact> initializeRun(WorkspaceDescriptor workspace, AgentRun run) {
-            return List.of(artifact(run.getRunId(), ArtifactType.RUN_META, ".coder/runs/" + run.getRunId() + "/run-meta.json"));
-        }
-
-        @Override
-        public RunArtifact appendTrace(WorkspaceDescriptor workspace, String runId, Map<String, Object> event) {
-            return artifact(runId, ArtifactType.TRACE, ".coder/runs/" + runId + "/trace.jsonl");
-        }
-
-        @Override
-        public RunArtifact writeContextSnapshot(WorkspaceDescriptor workspace, String runId, int callNo, Map<String, Object> snapshot) {
-            return artifact(runId, ArtifactType.CONTEXT_SNAPSHOT, ".coder/runs/" + runId + "/context-snapshot/" + callNo + ".json");
-        }
-
-        @Override
-        public RunArtifact writeToolOutput(WorkspaceDescriptor workspace, String runId, int callNo, String output) {
-            return artifact(runId, ArtifactType.TOOL_OUTPUT, ".coder/runs/" + runId + "/tool-output/" + callNo + ".txt");
-        }
-
-        @Override
-        public RunArtifact writeFinalResult(WorkspaceDescriptor workspace, AgentRun run, Map<String, Object> result) {
-            return artifact(run.getRunId(), ArtifactType.FINAL_RESULT, ".coder/runs/" + run.getRunId() + "/final-result.json");
-        }
-
-        @Override
-        public List<Map<String, Object>> readTrace(WorkspaceDescriptor workspace, String runId) {
-            return List.of();
-        }
-
-        private RunArtifact artifact(String runId, ArtifactType type, String path) {
-            return RunArtifact.builder()
-                    .runId(runId)
-                    .artifactType(type)
-                    .relativePath(path)
-                    .fileSize(1L)
-                    .createdAt(LocalDateTime.now())
-                    .build();
+        private ModelBackendConfig modelConfig() {
+            return new ModelBackendConfig("glm-5", "openai-compatible", "glm-5",
+                    "https://example.test/v1", "test-key", "chat-completions", 0.2, 60);
         }
     }
 }

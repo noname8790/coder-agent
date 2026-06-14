@@ -3,6 +3,7 @@ package cn.noname.coder.agent.infrastructure.adapter.port;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelGateway;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.agent.model.valobj.ModelProtocolMessage;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
 import cn.noname.coder.agent.domain.agent.model.valobj.ModelResponse;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * OpenAI-compatible 模型网关。
@@ -53,13 +55,47 @@ public class OpenAiResponsesModelGateway implements IModelGateway {
         payload.put("model", modelConfig.actualModel());
         payload.put("temperature", modelConfig.temperature());
         if ("chat-completions".equalsIgnoreCase(modelConfig.endpointType())) {
-            payload.put("messages", List.of(Map.of("role", "user", "content", String.join("\n\n", request.messages()))));
+            payload.put("messages", chatMessages(request));
             payload.put("tools", request.tools().stream().map(this::toChatCompletionTool).toList());
             return payload;
         }
         payload.put("input", String.join("\n\n", request.messages()));
         payload.put("tools", request.tools().stream().map(this::toOpenAiTool).toList());
         return payload;
+    }
+
+    private List<Map<String, Object>> chatMessages(ModelRequest request) {
+        if (request.protocolMessages() == null || request.protocolMessages().isEmpty()) {
+            return List.of(Map.of("role", "user", "content", String.join("\n\n", request.messages())));
+        }
+        List<Map<String, Object>> messages = new ArrayList<>();
+        for (ModelProtocolMessage message : request.protocolMessages()) {
+            if ("assistant".equals(message.role()) && message.toolCalls() != null && !message.toolCalls().isEmpty()) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("role", "assistant");
+                item.put("content", message.content() == null ? "" : message.content());
+                item.put("tool_calls", message.toolCalls().stream().map(invocation -> {
+                    Map<String, Object> function = new LinkedHashMap<>();
+                    function.put("name", invocation.name());
+                    function.put("arguments", invocation.argumentsJson() == null ? "{}" : invocation.argumentsJson());
+                    Map<String, Object> toolCall = new LinkedHashMap<>();
+                    toolCall.put("id", StringUtils.hasText(invocation.id()) ? invocation.id() : "call_" + Math.abs(Objects.hash(invocation.name(), invocation.argumentsJson())));
+                    toolCall.put("type", "function");
+                    toolCall.put("function", function);
+                    return toolCall;
+                }).toList());
+                messages.add(item);
+            } else if ("tool".equals(message.role())) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("role", "tool");
+                item.put("tool_call_id", message.toolCallId());
+                item.put("content", message.content() == null ? "" : message.content());
+                messages.add(item);
+            } else {
+                messages.add(Map.of("role", "user", "content", message.content() == null ? "" : message.content()));
+            }
+        }
+        return messages;
     }
 
     private Map<String, Object> toChatCompletionTool(ToolDefinition definition) {

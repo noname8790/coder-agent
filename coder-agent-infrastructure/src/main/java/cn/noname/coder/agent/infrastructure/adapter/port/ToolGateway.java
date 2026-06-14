@@ -1,6 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
+import cn.noname.coder.agent.domain.agent.adapter.port.IToolGovernancePort;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 public class ToolGateway implements IToolGateway {
 
     private final List<LocalTool> localTools;
+    private final IToolGovernancePort toolGovernancePort;
 
     @Override
     public List<ToolDefinition> definitions() {
@@ -72,8 +74,18 @@ public class ToolGateway implements IToolGateway {
                     runId, invocation.name(), rejected.errorMessage(), rejected.summary());
             return rejected;
         }
+        ToolResult governanceResult = toolGovernancePort.validateBeforeExecution(runId, workspace.workspaceKey(), invocation);
+        if (governanceResult != null) {
+            if (governanceResult.status() == CallStatus.REJECTED || governanceResult.status() == CallStatus.FAILED) {
+                log.warn("工具治理拒绝 runId={} tool={} code={}", runId, invocation.name(), governanceResult.errorMessage());
+            } else {
+                log.info("工具治理直接返回结果 runId={} tool={} status={}", runId, invocation.name(), governanceResult.status());
+            }
+            return governanceResult;
+        }
         try {
-            ToolResult result = tool.execute(runId, workspace, invocation.argumentsJson());
+            ToolResult result = toolGovernancePort.sanitizeAfterExecution(runId, workspace.workspaceKey(), invocation,
+                    tool.execute(runId, workspace, invocation.argumentsJson()));
             log.info("工具网关执行完成 runId={} tool={} status={} exitCode={}",
                     runId, invocation.name(), result.status(), result.exitCode());
             return result;
@@ -146,11 +158,19 @@ public class ToolGateway implements IToolGateway {
         return command.equals("mvn test")
                 || command.equals("mvn -q test")
                 || command.equals("mvn clean test")
+                || command.startsWith("mvn test -dtest")
+                || command.startsWith("mvn -dtest")
+                || command.startsWith("mvn -q -dtest")
+                || command.contains(" test-compile")
                 || (command.startsWith("mvn -pl ") && command.contains(" test"));
     }
 
     private boolean isBuildCommand(String command) {
         return command.equals("mvn package") || command.equals("mvn clean package")
+                || command.equals("mvn compile")
+                || command.equals("mvn -q compile")
+                || command.equals("mvn test-compile")
+                || command.equals("mvn -q test-compile")
                 || (command.startsWith("mvn -pl ") && command.contains(" package"));
     }
 

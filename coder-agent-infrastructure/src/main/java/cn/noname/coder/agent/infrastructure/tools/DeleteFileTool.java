@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 删除文本文件工具，仅在 L3 权限下可见和可执行。
+ * 删除单个文本文件，仅在高权限下暴露。
  */
 @Component
 @RequiredArgsConstructor
@@ -29,8 +29,11 @@ public class DeleteFileTool implements LocalTool {
 
     @Override
     public ToolDefinition definition() {
-        return new ToolDefinition("delete_file", "删除 workspace 内普通文本文件。参数：path；禁止删除目录和受保护路径。",
-                Map.of("type", "object",
+        return new ToolDefinition(
+                "delete_file",
+                "删除 workspace 内普通文本文件。参数：path；禁止删除目录和受保护路径。",
+                Map.of(
+                        "type", "object",
                         "properties", Map.of("path", Map.of("type", "string")),
                         "required", new String[]{"path"}));
     }
@@ -46,26 +49,38 @@ public class DeleteFileTool implements LocalTool {
             Path file = workspacePort.resolveInside(workspace, relativePath);
             protectedPathPolicy.assertEditable(workspace.rootPath(), file);
             if (Files.isDirectory(file)) {
-                return rejected("delete_file 禁止删除目录：" + relativePath, "INVALID_ARGUMENT");
+                return rejected("delete_file 禁止删除目录: " + relativePath, "INVALID_ARGUMENT");
             }
             if (!Files.isRegularFile(file)) {
-                return rejected("delete_file 只能删除已存在文件：" + relativePath, "FILE_NOT_FOUND");
+                return rejected("delete_file 只能删除已存在文件: " + relativePath, "FILE_NOT_FOUND");
             }
             TextFileSupport.assertTextFile(file);
             String before = TextFileSupport.read(file);
             Files.delete(file);
-            ChangedFile changed = new ChangedFile(relativePath.replace('\\', '/'), "DELETE",
-                    TextFileSupport.sha256(before), null, null, before, "");
+            ChangedFile changed = new ChangedFile(
+                    relativePath.replace('\\', '/'),
+                    "DELETE",
+                    TextFileSupport.sha256(before),
+                    null,
+                    null,
+                    before,
+                    "");
             log.info("delete_file 删除文件成功 runId={} path={} beforeHash={}",
                     runId, changed.relativePath(), changed.beforeHash());
-            return new ToolResult(CallStatus.SUCCESS, "已删除文件：" + changed.relativePath(), before,
-                    0, null, List.of(changed), null);
+            return new ToolResult(
+                    CallStatus.SUCCESS,
+                    "已删除文件: " + changed.relativePath(),
+                    before,
+                    0,
+                    null,
+                    List.of(changed),
+                    null);
         } catch (AppException e) {
             log.warn("delete_file 被拒绝 runId={} code={} message={}", runId, e.getCode(), e.getMessage());
-            return new ToolResult(CallStatus.REJECTED, "delete_file 被拒绝：" + e.getMessage(), "", 1, e.getCode());
+            return new ToolResult(CallStatus.REJECTED, "delete_file 被拒绝: " + e.getMessage(), "", 1, e.getCode());
         } catch (Exception e) {
             log.error("delete_file 执行失败 runId={}", runId, e);
-            return new ToolResult(CallStatus.FAILED, "delete_file 失败：" + e.getMessage(), "", 1, e.getMessage());
+            return new ToolResult(CallStatus.FAILED, "delete_file 失败: " + e.getMessage(), "", 1, e.getMessage());
         }
     }
 

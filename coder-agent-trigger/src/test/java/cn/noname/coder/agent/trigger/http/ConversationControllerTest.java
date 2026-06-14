@@ -51,8 +51,8 @@ class ConversationControllerTest {
     void shouldListConversationMessagesGivenConversationId() throws Exception {
         // Given 会话下存在用户消息和 Agent 消息
         when(conversationCase.messages("conv_1")).thenReturn(List.of(
-                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "修复测试", LocalDateTime.now()),
-                new ConversationMessageDTO("msg_2", "conv_1", "run_1", "AGENT", "已完成", LocalDateTime.now())
+                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "修复测试", "RUNNING", null, LocalDateTime.now()),
+                new ConversationMessageDTO("msg_2", "conv_1", "run_1", "AGENT", "已完成", "SUCCEEDED", null, LocalDateTime.now())
         ));
 
         // When 查询消息 / Then 按列表返回
@@ -78,7 +78,7 @@ class ConversationControllerTest {
     void shouldUpdateUserMessageGivenMessageId() throws Exception {
         // Given 用户消息存在
         when(conversationCase.updateMessage(any(), any(), any())).thenReturn(
-                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "修改后的任务", LocalDateTime.now()));
+                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "修改后的任务", "RUNNING", null, LocalDateTime.now()));
 
         // When 修改消息 / Then 返回更新后的内容
         mockMvc.perform(put("/api/conversations/conv_1/messages/msg_1")
@@ -93,7 +93,7 @@ class ConversationControllerTest {
     void shouldDeleteMessageGivenMessageId() throws Exception {
         // Given 消息存在
         when(conversationCase.deleteMessage("conv_1", "msg_1")).thenReturn(
-                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "任务", LocalDateTime.now()));
+                new ConversationMessageDTO("msg_1", "conv_1", "run_1", "USER", "任务", "RUNNING", null, LocalDateTime.now()));
 
         // When 删除消息 / Then 返回被删除消息
         mockMvc.perform(delete("/api/conversations/conv_1/messages/msg_1"))

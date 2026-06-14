@@ -1,30 +1,37 @@
 ## ADDED Requirements
 
 ### Requirement: 单 Workspace 记忆隔离
-系统 MUST 将所有结构化记忆、向量 chunk、召回记录和 freshness 状态绑定到 workspaceKey，并禁止跨 workspace 召回。涉及 API：`POST /api/agent-runs`、`GET /api/workspaces/{workspaceKey}/memory`。涉及表：`agent_memory_item`、`memory_chunk`。
+系统 MUST 按 workspaceKey 隔离所有记忆元数据、向量 chunk、召回记录和上下文候选。
 
-#### Scenario: 跨 Workspace 召回隔离
-- **WHEN** workspace A 的任务触发记忆召回
-- **THEN** 系统 MUST 只查询 workspace A 的记忆和向量 chunk
+#### Scenario: 召回当前 workspace 记忆
+- **WHEN** Agent Run 在 workspace A 中执行记忆召回
+- **THEN** 系统 MUST 只返回 workspace A 的记忆，不得返回 workspace B 的记忆
 
 ### Requirement: pgvector 向量记忆持久化
-系统 SHALL 使用 PostgreSQL + pgvector 保存 memory chunk、embedding、sourceType、sourceId、workspaceKey、metadata、contentHash、freshnessStatus 和 createdAt。涉及配置：`PGVECTOR_*`。涉及表：`memory_chunk`。
+系统 SHALL 使用 PostgreSQL + pgvector 保存 memory chunk embedding，并支持 topK、minScore 和 workspaceKey 过滤。
 
-#### Scenario: 写入文件摘要向量
-- **WHEN** 文件摘要生成成功且 embedding 配置可用
-- **THEN** 系统 MUST 将摘要文本向量化并写入 pgvector
-
-### Requirement: 记忆向量召回
-系统 SHALL 根据当前任务、会话摘要和最近用户输入生成查询向量，从当前 workspace 的 memory chunk 中召回 topK 相关记忆，并应用 minScore 过滤。涉及 API：`POST /api/agent-runs`。涉及表：`memory_recall`、`memory_chunk`。
-
-#### Scenario: 召回相关文件摘要
-- **WHEN** 用户任务与历史文件摘要相关
-- **THEN** 系统 SHALL 将命中摘要作为候选上下文交给上下文治理引擎
+#### Scenario: 写入并检索向量记忆
+- **WHEN** 系统生成文件摘要或运行摘要
+- **THEN** 系统 SHALL 写入 MySQL 记忆元数据和 pgvector 向量 chunk
 
 ### Requirement: Freshness 校验
-系统 MUST 对文件摘要记忆记录 path、contentHash、mtime 和 summaryVersion。文件发生变化后，旧摘要 MUST 标记为 stale，不得作为可信上下文直接使用。涉及表：`agent_memory_item`、`memory_chunk`。
+系统 MUST 为文件摘要记录 path、contentHash、mtime 和 summaryVersion，并在文件变化后标记 stale。
 
-#### Scenario: 文件修改后重新运行
-- **WHEN** 文件 hash 与摘要记录中的 contentHash 不一致
-- **THEN** 系统 MUST 标记该文件摘要 stale，并触发刷新或跳过该记忆
+#### Scenario: 文件内容变化
+- **WHEN** 文件摘要对应的 contentHash 与当前文件不一致
+- **THEN** 系统 MUST 标记该记忆为 stale，并避免把它作为可信上下文直接注入 prompt
 
+### Requirement: pgvector 降级运行
+系统 SHALL 在 `PGVECTOR_ENABLED=false` 或 pgvector 不可用时继续执行 Agent Run，并记录降级原因。
+
+#### Scenario: pgvector 不可用
+- **WHEN** 向量记忆端口不可用
+- **THEN** 系统 MUST 跳过向量召回并继续执行非向量上下文装配
+
+### Requirement: 删除会话时清理记忆
+系统 MUST 在删除会话或关联运行数据时，同步清理 MySQL 记忆元数据、记忆召回记录和 pgvector memory chunk。
+
+#### Scenario: 删除会话级联清理记忆
+- **WHEN** 用户删除一个会话
+- **THEN** 系统 MUST 删除该会话所有 runId 对应的 MySQL memory 和 pgvector chunk
+- **AND** 不得保留可被后续同 workspace 任务召回的孤立记忆

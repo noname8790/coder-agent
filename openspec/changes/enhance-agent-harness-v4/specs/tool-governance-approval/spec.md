@@ -1,34 +1,42 @@
 ## ADDED Requirements
 
-### Requirement: 工具参数 Schema 校验
-系统 MUST 在执行任意工具前基于工具 schema 校验工具名称、参数类型、必填字段、路径边界和权限等级。涉及工具：所有 Agent 工具。涉及表：`tool_call`、`audit_event`。
+### Requirement: 工具参数治理
+系统 MUST 在工具执行前校验必填参数、参数类型、路径边界、权限等级和敏感路径。
 
 #### Scenario: 工具参数缺失
-- **WHEN** 模型请求调用工具但缺少必填参数
-- **THEN** 系统 MUST 拒绝执行工具并记录结构化拒绝原因
+- **WHEN** Agent 请求执行缺少必填参数的工具
+- **THEN** 系统 MUST 拒绝执行并记录治理事件
 
-### Requirement: 重复工具调用拦截
-系统 SHALL 识别同一 run 内短时间重复的等价工具调用，并按策略返回缓存结果或拒绝重复调用。涉及工具：`read_file`、`search_text`、`run_shell`、文件写入工具。涉及表：`tool_call`、`audit_event`。
+### Requirement: 重复调用拦截
+系统 SHALL 识别同一 run 内重复读文件、重复搜索、重复 shell 和重复写入等工具调用。
 
-#### Scenario: 重复读取同一未变化文件
-- **WHEN** Agent 重复读取同一路径且文件 freshness 未变化
-- **THEN** 系统 SHALL 优先返回已读片段或摘要，并记录重复调用拦截
-
-### Requirement: 高风险工具人工审批
-系统 MUST 对 overwrite_file、delete_file、git commit 等高风险工具创建审批请求，并将 run 状态置为 WAITING_APPROVAL。涉及 API：`POST /api/tool-approvals/{approvalId}/approve`、`POST /api/tool-approvals/{approvalId}/reject`。涉及表：`tool_approval_request`、`agent_run`、`audit_event`。
-
-#### Scenario: 用户批准高风险工具
-- **WHEN** 用户批准等待中的工具审批请求
-- **THEN** 系统 MUST 恢复 Agent Run 并执行该工具
-
-#### Scenario: 用户拒绝高风险工具
-- **WHEN** 用户拒绝等待中的工具审批请求
-- **THEN** 系统 MUST 将拒绝结果返回 Agent，并允许 Agent 继续规划或结束
+#### Scenario: 重复工具调用
+- **WHEN** Agent 在同一 run 中提交等价工具调用
+- **THEN** 系统 SHALL 拦截或提示复用已有结果
 
 ### Requirement: 敏感信息脱敏
-系统 MUST 对工具参数、工具输出、审计事件、trace、SSE 事件和最终结果中的敏感信息执行脱敏。涉及表：`tool_call`、`audit_event`、`run_artifact`。
+系统 MUST 对工具参数、工具输出、trace、SSE 和 final-result 中的敏感信息脱敏。
 
-#### Scenario: Shell 输出包含密钥
-- **WHEN** run_shell 输出中包含疑似密钥或 token
-- **THEN** 系统 MUST 在展示和入库前脱敏，完整敏感内容不得进入 prompt
+#### Scenario: 工具输出包含 token
+- **WHEN** 工具输出包含 token、password、api_key 或 private key
+- **THEN** 系统 MUST 在外显和入库前脱敏
 
+### Requirement: 高风险工具审批
+系统 SHALL 对 overwrite_file、delete_file、git commit 等高风险工具创建审批请求，并将 run 切换为 `WAITING_APPROVAL`。
+
+#### Scenario: 审批通过
+- **WHEN** 用户批准高风险工具请求
+- **THEN** 系统 MUST 将 run 恢复为 `RUNNING` 并继续执行
+
+#### Scenario: 审批拒绝
+- **WHEN** 用户拒绝高风险工具请求
+- **THEN** 系统 MUST 将结构化拒绝结果回灌给 Agent，而不是直接丢弃上下文
+
+### Requirement: 高风险审批幂等
+系统 MUST 对同一 run 内相同工具和规范化参数的高风险审批请求做幂等处理，避免重复创建审批记录。
+
+#### Scenario: 同一删除请求已处于待审批
+- **GIVEN** run 内已经存在相同 toolName 和 argumentsJson 的 PENDING 审批记录
+- **WHEN** Agent 再次请求同一高风险工具
+- **THEN** 系统 MUST 复用既有审批记录并保持 run 为 WAITING_APPROVAL
+- **AND** 系统 MUST NOT 创建新的重复审批记录。

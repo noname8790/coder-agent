@@ -16,7 +16,7 @@ import java.util.Comparator;
 import java.util.Map;
 
 /**
- * 列目录工具，只返回受限数量的目录项摘要。
+ * 列出目录摘要，不返回超出限制的大量条目。
  */
 @Component
 @RequiredArgsConstructor
@@ -27,16 +27,22 @@ public class ListFilesTool implements LocalTool {
 
     @Override
     public ToolDefinition definition() {
-        return new ToolDefinition("list_files", "列出 workspace 内指定目录的文件摘要",
-                Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")), "required", new String[]{"path"}));
+        return new ToolDefinition(
+                "list_files",
+                "列出 workspace 内指定目录的文件摘要",
+                Map.of(
+                        "type", "object",
+                        "properties", Map.of("path", Map.of("type", "string")),
+                        "required", new String[]{"path"}));
     }
 
     @Override
     public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
         try {
-            Path dir = workspacePort.resolveInside(workspace, ToolJson.string(ToolJson.parse(argumentsJson), "path", "."));
+            String requestedPath = ToolJson.string(ToolJson.parse(argumentsJson), "path", ".");
+            Path dir = workspacePort.resolveInside(workspace, requestedPath);
             if (!Files.isDirectory(dir)) {
-                return new ToolResult(CallStatus.FAILED, "路径不是目录：" + dir, "", 1, "NOT_DIRECTORY");
+                return new ToolResult(CallStatus.FAILED, "路径不是目录: " + requestedPath, "", 1, "NOT_DIRECTORY");
             }
             StringBuilder output = new StringBuilder();
             try (var stream = Files.list(dir)) {
@@ -46,11 +52,14 @@ public class ListFilesTool implements LocalTool {
                                 .append(dir.relativize(path))
                                 .append(System.lineSeparator()));
             }
+            if (output.length() == 0) {
+                output.append("目录为空: ").append(requestedPath).append(System.lineSeparator());
+            }
             return new ToolResult(CallStatus.SUCCESS, output.toString(), output.toString(), 0, null);
         } catch (AppException e) {
-            return new ToolResult(CallStatus.REJECTED, "list_files 被拒绝：" + e.getMessage(), "", 1, e.getCode());
+            return new ToolResult(CallStatus.REJECTED, "list_files 被拒绝: " + e.getMessage(), "", 1, e.getCode());
         } catch (Exception e) {
-            return new ToolResult(CallStatus.REJECTED, "list_files 被拒绝：" + e.getMessage(), "", 1, e.getMessage());
+            return new ToolResult(CallStatus.REJECTED, "list_files 被拒绝: " + e.getMessage(), "", 1, e.getMessage());
         }
     }
 }

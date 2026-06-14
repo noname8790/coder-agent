@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -40,9 +41,42 @@ public class AgentRunRepository implements IAgentRunRepository {
     }
 
     @Override
+    public List<AgentRun> listByConversationId(String conversationId) {
+        return agentRunDao.selectList(new LambdaQueryWrapper<AgentRunPO>()
+                        .eq(AgentRunPO::getConversationId, conversationId))
+                .stream()
+                .map(this::toEntity)
+                .toList();
+    }
+
+    @Override
+    public List<AgentRun> listByWorkspaceKey(String workspaceKey) {
+        return agentRunDao.selectList(new LambdaQueryWrapper<AgentRunPO>()
+                        .eq(AgentRunPO::getWorkspaceKey, workspaceKey))
+                .stream()
+                .map(this::toEntity)
+                .toList();
+    }
+
+    @Override
     public long countByStatuses(Collection<AgentRunStatus> statuses) {
         return agentRunDao.selectCount(new LambdaQueryWrapper<AgentRunPO>()
                 .in(AgentRunPO::getStatus, statuses.stream().map(Enum::name).toList()));
+    }
+
+    @Override
+    public long countByModelAndStatuses(String modelKey, Collection<AgentRunStatus> statuses) {
+        return agentRunDao.selectCount(new LambdaQueryWrapper<AgentRunPO>()
+                .eq(AgentRunPO::getModel, modelKey)
+                .in(AgentRunPO::getStatus, statuses.stream().map(Enum::name).toList()));
+    }
+
+    @Override
+    public void deleteByRunIds(Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return;
+        }
+        agentRunDao.delete(new LambdaQueryWrapper<AgentRunPO>().in(AgentRunPO::getRunId, runIds));
     }
 
     private AgentRunPO toPo(AgentRun run) {

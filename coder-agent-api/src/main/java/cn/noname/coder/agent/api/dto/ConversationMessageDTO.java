@@ -11,6 +11,8 @@ public record ConversationMessageDTO(
         String runId,
         String role,
         String content,
+        String status,
+        String failureReason,
         LocalDateTime createdAt
 ) {
 }

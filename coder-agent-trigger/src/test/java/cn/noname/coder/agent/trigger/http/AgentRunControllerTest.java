@@ -4,6 +4,7 @@ import cn.noname.coder.agent.api.dto.*;
 import cn.noname.coder.agent.cases.agent.ICancelAgentRunCase;
 import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunCase;
+import cn.noname.coder.agent.cases.agent.IQueryAgentRunDraftCase;
 import cn.noname.coder.agent.cases.agent.IQueryRunTraceCase;
 import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,8 @@ class AgentRunControllerTest {
     private ICreateAgentRunCase createAgentRunCase;
     @MockBean
     private IQueryAgentRunCase queryAgentRunCase;
+    @MockBean
+    private IQueryAgentRunDraftCase queryAgentRunDraftCase;
     @MockBean
     private IQueryRunTraceCase queryRunTraceCase;
     @MockBean
@@ -97,12 +100,26 @@ class AgentRunControllerTest {
                 "run_1", "coder-agent", null, "分析仓库", "model", "L1_READ_ONLY",
                 "SUCCEEDED", "完成", null, null, null,
                 false, 0, "NOT_RUN",
-                1, 1, 0, 100L, LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), List.of()));
+                1, 1, 0,
+                null, null, null, null, null, null, null, null,
+                100L, LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), List.of()));
 
         // When 查询运行 / Then 返回状态
         mockMvc.perform(get("/api/agent-runs/run_1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
+    }
+
+    @Test
+    void shouldQueryRunDraftGivenRunningRun() throws Exception {
+        // Given 运行中草稿存在
+        when(queryAgentRunDraftCase.queryDraft("run_1")).thenReturn(new AgentRunDraftResponseDTO(
+                "run_1", "已输出草稿", "RUNNING", null, LocalDateTime.now()));
+
+        // When 查询草稿 / Then 返回草稿内容
+        mockMvc.perform(get("/api/agent-runs/run_1/draft"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("已输出草稿"));
     }
 
     @Test

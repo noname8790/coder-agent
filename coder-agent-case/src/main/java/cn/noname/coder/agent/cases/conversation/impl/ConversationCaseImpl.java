@@ -5,11 +5,17 @@ import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
 import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
+import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +24,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -30,8 +38,13 @@ import java.util.UUID;
 public class ConversationCaseImpl implements IConversationCase {
 
     private final IAgentConversationRepository conversationRepository;
+    private final IAgentRunRepository runRepository;
+    private final IContextSnapshotRepository contextSnapshotRepository;
+    private final MemoryService memoryService;
     private final IWorkspacePort workspacePort;
     private final IModelConfigPort modelConfigPort;
+    private final IAgentRecordRepository recordRepository;
+    private final IToolApprovalRepository toolApprovalRepository;
 
     @Override
     public ConversationResponseDTO create(CreateConversationRequestDTO request) {
@@ -80,15 +93,21 @@ public class ConversationCaseImpl implements IConversationCase {
     @Override
     public ConversationResponseDTO delete(String conversationId) {
         AgentConversation conversation = findConversation(conversationId);
+        List<String> runIds = runRepository.listByConversationId(conversationId).stream()
+                .map(AgentRun::getRunId)
+                .filter(StringUtils::hasText)
+                .toList();
+        clearRunContext(conversation.getWorkspaceKey(), runIds);
+        conversationRepository.deleteMessagesByConversationId(conversationId);
         conversationRepository.deleteConversation(conversationId);
-        log.info("删除 Agent 会话 conversationId={} workspaceKey={}，保留关联运行和消息记录",
-                conversation.getConversationId(), conversation.getWorkspaceKey());
+        log.info("删除 Agent 会话 conversationId={} workspaceKey={} cleanedRuns={}",
+                conversation.getConversationId(), conversation.getWorkspaceKey(), runIds.size());
         return toDto(conversation);
     }
 
     @Override
     public ConversationMessageDTO updateMessage(String conversationId, String messageId, UpdateConversationMessageRequestDTO request) {
-        findConversation(conversationId);
+        AgentConversation conversation = findConversation(conversationId);
         if (request == null || !StringUtils.hasText(request.content())) {
             throw new AppException("INVALID_ARGUMENT", "消息内容不能为空");
         }
@@ -99,14 +118,15 @@ public class ConversationCaseImpl implements IConversationCase {
         message.setContent(request.content());
         conversationRepository.updateMessage(message);
         conversationRepository.deleteAgentMessagesByRunId(message.getRunId());
-        log.info("更新用户消息 conversationId={} messageId={} runId={}，已清理旧 Agent 回复",
+        clearRunContext(conversation.getWorkspaceKey(), runIdsOf(message));
+        log.info("更新用户消息 conversationId={} messageId={} runId={}，已清理旧 Agent 回复和上下文",
                 conversationId, messageId, message.getRunId());
         return toDto(message);
     }
 
     @Override
     public ConversationMessageDTO deleteMessage(String conversationId, String messageId) {
-        findConversation(conversationId);
+        AgentConversation conversation = findConversation(conversationId);
         AgentMessage message = findMessage(conversationId, messageId);
         if ("USER".equals(message.getRole())) {
             if (StringUtils.hasText(message.getRunId())) {
@@ -114,14 +134,36 @@ public class ConversationCaseImpl implements IConversationCase {
             } else {
                 conversationRepository.deleteMessage(messageId);
             }
-            log.info("删除用户消息 conversationId={} messageId={} runId={}，连带删除同轮 Agent 回复",
+            clearRunContext(conversation.getWorkspaceKey(), runIdsOf(message));
+            log.info("删除用户消息 conversationId={} messageId={} runId={}，连带删除同轮 Agent 回复和上下文",
                     conversationId, messageId, message.getRunId());
         } else {
             conversationRepository.deleteMessage(messageId);
-            log.info("删除 Agent 消息 conversationId={} messageId={} runId={}",
+            clearRunContext(conversation.getWorkspaceKey(), runIdsOf(message));
+            log.info("删除 Agent 消息 conversationId={} messageId={} runId={}，已清理该回复上下文",
                     conversationId, messageId, message.getRunId());
         }
         return toDto(message);
+    }
+
+    private void clearRunContext(String workspaceKey, List<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return;
+        }
+        contextSnapshotRepository.deleteByRunIds(runIds);
+        memoryService.deleteRunMemories(workspaceKey, runIds);
+        toolApprovalRepository.deleteByRunIds(runIds);
+        recordRepository.deleteByRunIds(runIds);
+        runRepository.deleteByRunIds(runIds);
+    }
+
+    private List<String> runIdsOf(AgentMessage message) {
+        if (message == null || !StringUtils.hasText(message.getRunId())) {
+            return List.of();
+        }
+        Set<String> runIds = new LinkedHashSet<>();
+        runIds.add(message.getRunId());
+        return List.copyOf(runIds);
     }
 
     private AgentConversation findConversation(String conversationId) {
@@ -165,12 +207,17 @@ public class ConversationCaseImpl implements IConversationCase {
     }
 
     private ConversationMessageDTO toDto(AgentMessage message) {
+        AgentRun run = StringUtils.hasText(message.getRunId())
+                ? runRepository.findByRunId(message.getRunId()).orElse(null)
+                : null;
         return new ConversationMessageDTO(
                 message.getMessageId(),
                 message.getConversationId(),
                 message.getRunId(),
                 message.getRole(),
                 message.getContent(),
+                run == null || run.getStatus() == null ? null : run.getStatus().name(),
+                run == null ? null : run.getFailureReason(),
                 message.getCreatedAt()
         );
     }

@@ -124,6 +124,15 @@ public class AgentConversationRepository implements IAgentConversationRepository
     }
 
     @Override
+    public void deleteMessagesByConversationId(String conversationId) {
+        if (!StringUtils.hasText(conversationId)) {
+            return;
+        }
+        messageDao.delete(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getConversationId, conversationId));
+    }
+
+    @Override
     public List<AgentMessage> listMessages(String conversationId) {
         return messageDao.selectList(new LambdaQueryWrapper<AgentMessagePO>()
                         .eq(AgentMessagePO::getConversationId, conversationId)

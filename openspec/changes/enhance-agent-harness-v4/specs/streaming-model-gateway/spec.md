@@ -1,51 +1,63 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: 统一流式模型事件
-系统 SHALL 将 Chat Completions streaming 和 Responses API streaming 转换为统一内部事件，包括 assistant_message_started、assistant_delta、tool_call_started、tool_call_arguments_delta、tool_call_completed、model_completed 和 model_failed。涉及 API：`GET /api/agent-runs/{runId}/events`。涉及表：`model_call`、`agent_message`、`audit_event`。
+### Requirement: 流式输出主流程
+系统 MUST 使用 streaming delta 作为 Agent 正文输出主流程，取代 v3 运行结束后一次性写入结果的非流式模式。
 
-#### Scenario: 模型文本增量输出
-- **WHEN** 模型通过任一协议返回文本 delta
-- **THEN** 系统 MUST 发布 assistant_delta SSE 事件，并累积到当前 Agent 消息
-
-### Requirement: 流式模型调用为 Agent Run 主流程
-系统 MUST 使用流式模型调用驱动 Agent Run 的可见回复。模型配置未启用 streaming 或 endpoint 不支持 streaming 时，系统 MUST 拒绝创建或执行该运行，不得回退到第三版非流式完整响应。涉及 API：`POST /api/agent-runs`、`GET /api/agent-runs/{runId}/events`。涉及表：`agent_model_provider`、`model_call`、`agent_message`。
-
-#### Scenario: 模型未启用 streaming
-- **WHEN** 用户选择的模型配置 `streamingEnabled=false`
-- **THEN** 系统 MUST 拒绝创建 Agent Run，并返回模型不支持 v4 流式运行的错误原因
-
-#### Scenario: 流式连接失败
-- **WHEN** 模型 endpoint 无法建立 streaming 连接
-- **THEN** 系统 MUST 将 Agent Run 标记为 FAILED，并记录失败原因，不得改用非流式请求重试
+#### Scenario: 模型返回文本 delta
+- **WHEN** 模型网关接收到文本 delta
+- **THEN** 系统 MUST 追加到当前 assistant 消息，并通过 SSE 推送 `assistant_delta`
 
 ### Requirement: Chat Completions Streaming
-系统 SHALL 支持 OpenAI-compatible Chat Completions streaming，包括文本 delta 和 tool call 参数增量累积。涉及模型 endpoint：`/v1/chat/completions`。涉及表：`model_call`、`tool_call`。
+系统 SHALL 支持 OpenAI-compatible Chat Completions streaming，并解析文本 delta、tool_calls delta、finish 和异常。
 
-#### Scenario: Chat Completions 工具调用流式累积
-- **WHEN** Chat Completions streaming 返回 tool_calls delta
-- **THEN** 系统 MUST 累积完整工具名称和参数，并在参数完整后进入工具校验流程
+#### Scenario: Chat Completions 返回 tool_calls delta
+- **WHEN** 模型返回 tool call 参数片段
+- **THEN** 系统 MUST 组装完整 tool call 参数后再执行工具
 
 ### Requirement: Responses API Streaming
-系统 SHALL 支持 OpenAI Responses API streaming 作为模型调用协议，不使用 previous_response_id、store 或服务端 hosted state。涉及模型 endpoint：`/v1/responses`。涉及表：`model_call`、`tool_call`。
+系统 SHALL 支持 Responses API streaming 协议，但不得使用 `previous_response_id`、`store` 或服务端 hosted state。
 
-#### Scenario: Responses 流式输出
-- **WHEN** endpointType 为 responses 且模型返回 response.output_text.delta
-- **THEN** 系统 MUST 转换为 assistant_delta，并由本地 Harness 管理上下文和状态
+#### Scenario: Responses API 流式响应
+- **WHEN** 模型返回 Responses API 事件
+- **THEN** 系统 MUST 转换为内部 ModelStreamEvent
 
-### Requirement: 流式消息持久化
-系统 MUST 在运行中保存 Agent partial message，并在成功、失败或取消时保存完整可见消息。涉及 API：`/api/conversations/{conversationId}/messages`、`/api/agent-runs/{runId}/cancel`。涉及表：`agent_message`。
+### Requirement: 流式失败不回退非流式
+系统 MUST 在 streaming 失败时记录失败并终止或重试受控流程，不得回退到非流式请求。
 
-#### Scenario: 用户取消运行
-- **WHEN** 用户取消正在流式输出的 Agent Run
-- **THEN** 系统 MUST 保存已输出的 Agent 文本，并追加可识别的取消结果反馈
+#### Scenario: streaming 连接失败
+- **WHEN** 模型 streaming 请求失败
+- **THEN** 系统 MUST 记录 `model_stream_failure`，不得发起非流式模型请求
 
-## REMOVED Requirements
+### Requirement: 运行中草稿恢复与推理片段过滤
+系统 MUST 只把用户可见 assistant delta 推送给客户端，并 SHALL 为运行中的可见回复提供草稿查询能力。
 
-### Requirement: 非流式一键结果输出
-**Reason**: 第三版等待模型调用完成后一次性写入 Agent 消息，导致客户端无法看到真实模型输出进度，也无法在取消时保留已输出内容。v4 以流式 delta 作为对话主体验。
+#### Scenario: 隐藏模型推理片段
+- **WHEN** Chat Completions streaming 返回 `<think>...</think>` 或推理专用内容
+- **THEN** 系统 MUST 过滤推理片段，不得作为 `assistant_delta` 推送给客户端
 
-**Migration**: 所有 chat 模型配置必须声明并验证 streaming 能力。旧非流式网关和运行结束后一键写消息流程应从 v4 主链路中移除。
+#### Scenario: 刷新后恢复运行中草稿
+- **WHEN** Agent Run 尚未终态且客户端刷新或切换会话
+- **THEN** 系统 SHALL 提供当前 run 的可见回复草稿，供客户端恢复已输出 delta
 
-#### Scenario: 不再一次性返回完整 Agent 消息
-- **WHEN** Agent Run 正在执行模型调用
-- **THEN** 系统 MUST 通过 assistant_delta 增量更新 Agent 消息，而不是等待模型完成后一次性写入完整结果
+### Requirement: 多轮工具调用草稿恢复
+系统 MUST 将工具调用前的模型计划文本写入当前 run 的运行中草稿，并在 run 终态前持续提供恢复能力。
+
+#### Scenario: 新一轮模型调用开始
+- **GIVEN** 上一轮模型调用输出了可见草稿并请求工具
+- **WHEN** 下一轮模型调用开始
+- **THEN** 系统 MUST 保留当前 run 已输出的可见草稿
+- **AND** 客户端刷新、切换会话或 SSE 重连后 SHALL 能通过 draft 查询恢复这些可见 delta
+- **AND** 重复工具调用 SHOULD 通过工具结果复用或重复拦截治理，不得通过清空运行中草稿来隐藏问题。
+
+### Requirement: 工具规划轮次不得直接持久化为最终消息
+系统 MUST 将带工具调用的模型轮次视为运行过程，而不是最终 assistant 消息。
+
+#### Scenario: 模型同时输出可见文本和 tool call
+- **WHEN** 模型流式输出了用户可见文本，并在同一轮返回 tool call
+- **THEN** 系统 MUST 仅将该文本保存在运行中草稿
+- **AND** 系统 MUST NOT 立即将该文本持久化为正式 Agent 消息
+
+#### Scenario: 终态落盘消息
+- **WHEN** run 成功结束且最后一轮没有 tool call
+- **THEN** 系统 MUST 将最终回答持久化为正式 Agent 消息
+- **AND** run 失败或取消时，系统 SHALL 将终态前最后一版可见草稿保存为正式消息正文

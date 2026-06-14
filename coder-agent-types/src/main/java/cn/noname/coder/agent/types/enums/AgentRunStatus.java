@@ -6,6 +6,7 @@ package cn.noname.coder.agent.types.enums;
 public enum AgentRunStatus {
     CREATED,
     RUNNING,
+    WAITING_APPROVAL,
     SUCCEEDED,
     FAILED,
     CANCELLED,

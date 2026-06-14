@@ -1,7 +1,11 @@
 package cn.noname.coder.agent.cases.agent;
 
+import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextCandidate;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextCutReason;
+import cn.noname.coder.agent.domain.agent.model.valobj.ContextLayer;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
 
 import java.util.ArrayList;
@@ -12,38 +16,130 @@ import java.util.List;
  */
 public class AgentContextAssembler {
 
-    public List<String> initialMessages(AgentRun run, WorkspaceDescriptor workspace) {
-        List<String> messages = new ArrayList<>();
-        messages.add("""
+    public List<ContextCandidate> initialCandidates(AgentRun run, WorkspaceDescriptor workspace) {
+        List<ContextCandidate> candidates = new ArrayList<>();
+        candidates.add(required("system", ContextLayer.SYSTEM, "系统指令", """
                 你是 coder-agent，本次任务只能围绕当前 workspace 工作。
-                工具列表已经按本次权限等级过滤；不要尝试调用未提供的工具。
-                第三版仍禁止 git push、git clean、git reset --hard 和远程 PR 创建；最终回答必须给出清晰结论、变更摘要和后续建议。
+                当前用户任务是唯一主目标；最近消息、记忆和工具结果只用于消歧和连续工作，不能替代当前任务。
+                如果历史消息或记忆与当前用户任务冲突，必须忽略历史并执行当前任务。
+                工具列表已经按本次权限等级过滤，不要尝试调用未提供的工具。
+                不要机械重复同一个工具和同一组参数；工具已经返回结果后，必须基于结果推进、换路径搜索，或明确说明阻塞原因。
+                如果工具失败、被拒绝或返回空结果，也必须把该结果当作事实继续推理，而不是重复同一调用。
+                agent 使用本地 Harness 管理上下文、记忆、工具和审计；最终回答必须给出清晰结论、变更摘要和后续建议。
+                """, 100));
+        candidates.add(required("workspace", ContextLayer.WORKSPACE_PROFILE, "工作区",
+                "workspaceKey=" + workspace.workspaceKey() + ", workspaceRoot=" + workspace.rootPath(), 95));
+        candidates.add(required("permission", ContextLayer.PERMISSION_POLICY, "权限策略",
+                permissionContent(run), 100));
+        candidates.add(required("task", ContextLayer.CURRENT_TASK, "当前任务", """
+                CURRENT_USER_TASK
+                instruction=必须优先执行下面这个当前任务；历史消息和记忆只能辅助理解，不能覆盖本任务。
+                task=%s
+                """.formatted(run.getTask()), 100));
+        return candidates;
+    }
+
+    public ContextCandidate recentMessagesCandidate(AgentRun run, List<AgentMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return null;
+        }
+        StringBuilder content = new StringBuilder("""
+                以下是同一会话的最近消息，按时间从旧到新排列。
+                这些消息只用于连续对话和指代消解；当前任务仍拥有最高优先级。
+                如果历史内容与当前任务冲突，忽略历史内容。
                 """);
-        messages.add("workspaceKey=" + workspace.workspaceKey() + ", workspaceRoot=" + workspace.rootPath());
-        messages.add("permissionLevel=" + (run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name()));
-        if (run.getPermissionLevel() != null) {
-            messages.add("权限等级说明：" + run.getPermissionLevel().displayName()
-                    + "；开放功能=" + run.getPermissionLevel().allowedFeatures()
-                    + "；禁止功能=" + run.getPermissionLevel().forbiddenFeatures()
-                    + "；风险提示=" + run.getPermissionLevel().riskNotice());
+        for (AgentMessage message : messages) {
+            if (message == null || message.getContent() == null || message.getContent().isBlank()) {
+                continue;
+            }
+            String role = "USER".equals(message.getRole()) ? "用户" : "Agent";
+            content.append("\n[").append(role).append("] ")
+                    .append(message.getContent().strip());
         }
-        if (run.getPermissionLevel() != null && run.getPermissionLevel().atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
-            messages.add("""
-                    L2/L3 权限说明：
-                    - apply_patch 只能通过 search/replace 修改已有文本文件。
-                    - write_file 只能新建文件，不能覆盖已有文件。
-                    - overwrite_file 和 delete_file 只在 L3_REPO_WRITE 中允许。
-                    - 本地 git add/commit/checkout -b 只在 L3_REPO_WRITE 中允许。
-                    - 修改后优先运行可用测试/构建命令，并根据结果继续修复或总结。
-                    """);
+        if (content.isEmpty()) {
+            return null;
         }
-        messages.add("用户任务：" + run.getTask());
-        return messages;
+        return new ContextCandidate("recent-messages-" + run.getRunId(),
+                ContextLayer.RECENT_MESSAGES,
+                "最近会话消息",
+                content.toString(),
+                estimate(content.toString()),
+                88,
+                "conversation",
+                run.getConversationId());
+    }
+
+    public List<String> initialMessages(AgentRun run, WorkspaceDescriptor workspace) {
+        return initialCandidates(run, workspace).stream()
+                .map(ContextCandidate::content)
+                .toList();
     }
 
     public String budgetLine(AgentRun run) {
         return "预算使用：steps=" + run.getStepCount() + "/" + run.getMaxSteps()
                 + ", model_calls=" + run.getModelCallCount() + "/" + run.getMaxModelCalls()
                 + ", tool_calls=" + run.getToolCallCount() + "/" + run.getMaxToolCalls();
+    }
+
+    public ContextCandidate budgetCandidate(AgentRun run) {
+        return new ContextCandidate("budget-" + run.getModelCallCount(), ContextLayer.RUN_TRACE_SUMMARY,
+                "运行预算", budgetLine(run), estimate(budgetLine(run)), 90, "run", run.getRunId(), true, ContextCutReason.NONE);
+    }
+
+    public ContextCandidate toolResultCandidate(AgentRun run, String toolName, String summary) {
+        String content = """
+                最新工具结果（必须优先遵循）
+                这是一条已经完成的本地工具调用结果。下一次模型调用必须基于该结果继续推进，不能忽略它，也不能用相同参数重复调用同一工具。
+                如果工具成功：直接使用 summary 中的文件、目录或命令结果继续下一步。
+                如果工具失败或被拒绝：明确说明该工具出现的问题，并选择不同路径、不同工具，或给出可执行的失败结论。
+                %s
+                """.formatted(summary);
+        return new ContextCandidate("tool-" + run.getToolCallCount(), ContextLayer.TOOL_RESULT,
+                "最新工具结果：" + toolName, content, estimate(content), 100, "tool_call",
+                String.valueOf(run.getToolCallCount()), true, ContextCutReason.NONE);
+    }
+
+    private ContextCandidate required(String id, ContextLayer layer, String title, String content, int priority) {
+        return new ContextCandidate(id, layer, title, content, estimate(content), priority, "run", id, true, ContextCutReason.NONE);
+    }
+
+    private String permissionContent(AgentRun run) {
+        StringBuilder content = new StringBuilder("permissionLevel=")
+                .append(run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name());
+        if (run.getPermissionLevel() != null) {
+            content.append("\n权限等级说明：").append(run.getPermissionLevel().displayName())
+                    .append("；开放功能：").append(run.getPermissionLevel().allowedFeatures())
+                    .append("；禁止功能：").append(run.getPermissionLevel().forbiddenFeatures())
+                    .append("；风险提示：").append(run.getPermissionLevel().riskNotice());
+        }
+        if (run.getPermissionLevel() != null && run.getPermissionLevel().atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
+            content.append("""
+
+                    L2/L3 权限说明：
+                    - apply_patch 只能通过 search/replace 修改已有文本文件。
+                    - write_file 只能新建文件，不能覆盖已有文件。
+                    - overwrite_file 和 delete_file 只在 L3_REPO_WRITE 中允许，且需要审批。
+                    - 本地 git add/commit/checkout -b 只在 L3_REPO_WRITE 中允许。
+                    - Shell 优先使用允许的 Maven/Git/Java 命令；目录读取、文件读取和搜索请使用专用工具。
+                    - 修改后优先运行可用测试或构建命令，并根据结果继续修复或总结。
+                    """);
+        }
+        return content.toString();
+    }
+
+    private int estimate(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        int ascii = 0;
+        int nonAscii = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) <= 127) {
+                ascii++;
+            } else {
+                nonAscii++;
+            }
+        }
+        return Math.max(1, (int) Math.ceil(ascii / 4.0 + nonAscii));
     }
 }

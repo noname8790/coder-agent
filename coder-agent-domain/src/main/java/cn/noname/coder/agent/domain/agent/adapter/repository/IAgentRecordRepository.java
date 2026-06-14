@@ -2,6 +2,7 @@ package cn.noname.coder.agent.domain.agent.adapter.repository;
 
 import cn.noname.coder.agent.domain.agent.model.entity.*;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -22,4 +23,7 @@ public interface IAgentRecordRepository {
     List<AuditEvent> listAuditEvents(String runId);
 
     List<RunArtifact> listArtifacts(String runId);
+
+    default void deleteByRunIds(Collection<String> runIds) {
+    }
 }

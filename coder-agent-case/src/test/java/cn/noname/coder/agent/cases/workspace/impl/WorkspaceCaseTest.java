@@ -1,7 +1,16 @@
 package cn.noname.coder.agent.cases.workspace.impl;
 
 import cn.noname.coder.agent.api.dto.CreateWorkspaceRequestDTO;
+import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IMemoryRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceStatus;
 import cn.noname.coder.agent.types.exception.AppException;
@@ -16,6 +25,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class WorkspaceCaseTest {
 
@@ -79,6 +91,49 @@ class WorkspaceCaseTest {
         // Then 逻辑停用后不再出现在 active 查询中
         assertEquals("INACTIVE", response.status());
         assertTrue(repository.findActiveByWorkspaceKey("demo").isEmpty());
+    }
+
+    @Test
+    void shouldCleanupWorkspaceRelatedDataGivenWorkspaceDeleted() {
+        // Given 一个已注册 workspace 以及关联运行和会话
+        InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
+        Workspace workspace = Workspace.builder()
+                .workspaceKey("demo")
+                .rootPath(workspaceRoot)
+                .status(WorkspaceStatus.ACTIVE)
+                .build();
+        repository.save(workspace);
+        IAgentRunRepository runRepository = mock(IAgentRunRepository.class);
+        IAgentConversationRepository conversationRepository = mock(IAgentConversationRepository.class);
+        IAgentRecordRepository recordRepository = mock(IAgentRecordRepository.class);
+        IContextSnapshotRepository contextSnapshotRepository = mock(IContextSnapshotRepository.class);
+        IMemoryRepository memoryRepository = mock(IMemoryRepository.class);
+        IVectorMemoryPort vectorMemoryPort = mock(IVectorMemoryPort.class);
+        IToolApprovalRepository approvalRepository = mock(IToolApprovalRepository.class);
+        when(runRepository.listByWorkspaceKey("demo")).thenReturn(List.of(
+                AgentRun.builder().runId("run_1").workspaceKey("demo").build(),
+                AgentRun.builder().runId("run_2").workspaceKey("demo").build()));
+        when(conversationRepository.listConversations("demo")).thenReturn(List.of(
+                AgentConversation.builder().conversationId("conv_1").workspaceKey("demo").build()));
+        DeactivateWorkspaceCaseImpl deactivateCase = new DeactivateWorkspaceCaseImpl(repository, runRepository,
+                conversationRepository, recordRepository, contextSnapshotRepository, memoryRepository,
+                vectorMemoryPort, approvalRepository);
+
+        // When 删除 workspace
+        deactivateCase.deactivate("demo");
+
+        // Then 关联运行、会话、上下文和记忆都被清理
+        List<String> runIds = List.of("run_1", "run_2");
+        verify(contextSnapshotRepository).deleteByRunIds(runIds);
+        verify(memoryRepository).deleteByRunIds("demo", runIds);
+        verify(vectorMemoryPort).deleteByRunIds("demo", runIds);
+        verify(approvalRepository).deleteByRunIds(runIds);
+        verify(recordRepository).deleteByRunIds(runIds);
+        verify(runRepository).deleteByRunIds(runIds);
+        verify(memoryRepository).deleteByWorkspaceKey("demo");
+        verify(vectorMemoryPort).deleteByWorkspaceKey("demo");
+        verify(conversationRepository).deleteMessagesByConversationId("conv_1");
+        verify(conversationRepository).deleteConversation("conv_1");
     }
 
     @Test

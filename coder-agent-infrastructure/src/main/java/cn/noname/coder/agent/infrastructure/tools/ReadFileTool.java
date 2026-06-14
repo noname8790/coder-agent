@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 读取文本文件工具，限制文件类型和最大读取大小。
+ * 读取文本文件内容，限制可读类型和最大字节数。
  */
 @Component
 @RequiredArgsConstructor
@@ -32,30 +32,43 @@ public class ReadFileTool implements LocalTool {
 
     @Override
     public ToolDefinition definition() {
-        return new ToolDefinition("read_file", "读取 workspace 内文本文件内容",
-                Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")), "required", new String[]{"path"}));
+        return new ToolDefinition(
+                "read_file",
+                "读取 workspace 内文本文件内容",
+                Map.of(
+                        "type", "object",
+                        "properties", Map.of("path", Map.of("type", "string")),
+                        "required", new String[]{"path"}));
     }
 
     @Override
     public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
         try {
-            Path file = workspacePort.resolveInside(workspace, ToolJson.string(ToolJson.parse(argumentsJson), "path", ""));
+            String requestedPath = ToolJson.string(ToolJson.parse(argumentsJson), "path", "");
+            Path file = workspacePort.resolveInside(workspace, requestedPath);
             if (!Files.isRegularFile(file)) {
-                return new ToolResult(CallStatus.FAILED, "路径不是文件：" + file, "", 1, "NOT_FILE");
+                return new ToolResult(CallStatus.FAILED, "路径不是文件: " + requestedPath, "", 1, "NOT_FILE");
             }
             if (!isTextFile(file)) {
-                return new ToolResult(CallStatus.REJECTED, "拒绝读取非文本文件：" + file.getFileName(), "", 1, "NON_TEXT_FILE");
+                return new ToolResult(CallStatus.REJECTED, "拒绝读取非文本文件: " + file.getFileName(), "", 1, "NON_TEXT_FILE");
             }
             long size = Files.size(file);
             int maxBytes = properties.getTools().getMaxReadBytes();
             byte[] bytes = Files.readAllBytes(file);
             String content = new String(bytes, 0, (int) Math.min(bytes.length, maxBytes), StandardCharsets.UTF_8);
-            String summary = size > maxBytes ? content + "\n...[内容已截断，文件大小 " + size + " bytes]" : content;
+            String summary;
+            if (size == 0) {
+                summary = "文件为空: " + requestedPath;
+            } else if (size > maxBytes) {
+                summary = content + "\n...[内容已截断，文件大小 " + size + " bytes]";
+            } else {
+                summary = content;
+            }
             return new ToolResult(CallStatus.SUCCESS, summary, new String(bytes, StandardCharsets.UTF_8), 0, null);
         } catch (AppException e) {
-            return new ToolResult(CallStatus.REJECTED, "read_file 被拒绝：" + e.getMessage(), "", 1, e.getCode());
+            return new ToolResult(CallStatus.REJECTED, "read_file 被拒绝: " + e.getMessage(), "", 1, e.getCode());
         } catch (Exception e) {
-            return new ToolResult(CallStatus.REJECTED, "read_file 被拒绝：" + e.getMessage(), "", 1, e.getMessage());
+            return new ToolResult(CallStatus.REJECTED, "read_file 被拒绝: " + e.getMessage(), "", 1, e.getMessage());
         }
     }
 

@@ -2,7 +2,7 @@
 
 `coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 和 Tauri 客户端接收任务，在用户注册的本地 workspace 中读取仓库、搜索、修改文件、执行受限 PowerShell 命令、生成本地 commit/PR 草稿，并把运行过程持久化到 MySQL、pgvector 和 `{workspaceRoot}/.coder/`。
 
-当前 v4 目标是把项目从“能操作仓库的 coding agent”推进到“可治理、可记忆、可审计、可评测的 Agent Harness”，v4 版已实现Coding Agent基本功能。
+当前 v4 目标是把项目从“能操作仓库的 coding agent”推进到“可治理、可记忆、可审计、可评测的 Agent Harness”，v4 版经过功能测试已实现Coding Agent基本功能。
 
 ## 模块
 
@@ -41,6 +41,7 @@ docs/dev-ops/postgresql/sql/coder-agent.sql
 ```
 
 MYSQL 表包含会话记录、模型配置、上下文快照、Agent 运行记录、工作区配置、记忆元数据、记忆召回、工具审批、运行工件记录、模型调用记录、eval benchmark/run/result等。
+
 pgvector 保存向量 chunk 和检索元数据。
 
 ## .env 配置

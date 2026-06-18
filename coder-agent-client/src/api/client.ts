@@ -61,7 +61,7 @@ export function createApi(baseUrl: string) {
       workspaceKey: string;
       title: string;
       defaultModel?: string;
-      defaultPermissionLevel?: string;
+      lastPermissionLevel?: string;
     }) =>
       request<Conversation>(baseUrl, "/api/conversations", {
         method: "POST",

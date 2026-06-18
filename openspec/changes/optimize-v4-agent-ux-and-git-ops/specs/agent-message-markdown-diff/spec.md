@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Agent 消息 Markdown 渲染
-客户端 MUST 使用 Markdown 渲染 Agent 消息正文，支持标题、列表、代码块、引用、表格和链接。客户端 MUST 禁用或清洗原始 HTML，避免模型输出脚本或危险标签。涉及页面：对话消息列表。
+客户端 MUST 使用轻量 Markdown 安全渲染 Agent 消息正文，支持标题、列表、行内代码、代码块和状态行等 coding agent 常用格式。客户端 MUST 禁用原始 HTML 执行能力；未支持的 Markdown 语法 MUST 以安全文本降级展示，避免模型输出脚本或危险标签。涉及页面：对话消息列表。
 
 #### Scenario: 渲染 Markdown 代码块
 - **WHEN** Agent 消息包含 Markdown 代码块
@@ -23,10 +23,10 @@
 - **THEN** 客户端 MUST 恢复已输出 Markdown 草稿，并在末尾继续显示“思考中...”
 
 ### Requirement: 消息状态提示
-客户端 MUST 根据 Agent 消息状态展示结尾状态提示。`CANCELED` 消息 MUST 在正文末尾额外显示加粗“已取消”；`FAILED` 消息 MUST 在正文末尾额外显示加粗“运行失败：<failureReason>”；成功消息不得显示额外状态提示。状态提示 MUST 仅出现一次。
+客户端 MUST 根据 Agent 消息状态展示结尾状态提示。`CANCELLED` 消息 MUST 在正文末尾额外显示加粗“已取消”；`FAILED` 消息 MUST 在正文末尾额外显示加粗“运行失败：<failureReason>”；成功消息不得显示额外状态提示。状态提示 MUST 仅出现一次。
 
 #### Scenario: 取消消息显示一次
-- **WHEN** Agent 消息状态为 `CANCELED`
+- **WHEN** Agent 消息状态为 `CANCELLED`
 - **THEN** 客户端 MUST 在消息末尾显示一次加粗“已取消”
 
 #### Scenario: 失败消息显示原因

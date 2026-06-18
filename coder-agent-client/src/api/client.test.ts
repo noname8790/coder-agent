@@ -39,7 +39,7 @@ describe("conversation message api", () => {
       task: "new task",
       model: "glm-5",
       conversationId: "conv_1",
-      permissionLevel: "L1_READ_ONLY",
+      permissionLevel: "READ_ONLY",
       sourceMessageId: "msg_1"
     });
 

@@ -1,8 +1,12 @@
 import {
   AlertTriangle,
+  BookOpen,
   Bot,
+  Check,
   CheckCircle2,
+  ChevronDown,
   CircleStop,
+  Copy,
   Pencil,
   FileDiff,
   Folder,
@@ -16,6 +20,9 @@ import {
   Server,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   Trash2,
   X
 } from "lucide-react";
@@ -107,8 +114,8 @@ function terminalLine(status: string, reason?: string) {
   return "";
 }
 
-function renderMessageContent(content: string, terminal?: string) {
-  const markers = ["\n\n已取消", "\n\n任务已取消", "\n\n运行失败："];
+function terminalParts(content: string, terminal?: string) {
+  const markers = ["\n\n???", "\n\n?????", "\n\n?????"];
   const matchedMarker = markers.find((marker) => content.includes(marker));
   let body = content;
   let terminalText = terminal || "";
@@ -117,15 +124,233 @@ function renderMessageContent(content: string, terminal?: string) {
     body = content.slice(0, markerStart);
     terminalText = terminalText || content.slice(markerStart + 2);
   }
+  return { body, terminalText };
+}
+
+function markdownInline(text: string, keyPrefix: string) {
+  const parts: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>);
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      parts.push(<strong key={`${keyPrefix}-b-${match.index}`}>{token.slice(2, -2)}</strong>);
+    } else {
+      parts.push(<code key={`${keyPrefix}-c-${match.index}`}>{token.slice(1, -1)}</code>);
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex)}</span>);
+  }
+  return parts.length > 0 ? parts : text;
+}
+
+function normalizeMarkdownBody(body: string) {
+  return body
+    .split(/(```[\s\S]*?```)/g)
+    .map((part) => {
+      if (part.startsWith("```")) {
+        return part;
+      }
+      const withHeadingBreaks = part
+        .replace(/([^\n])(\#{1,6}\s*\S)/g, "$1\n\n$2")
+        .replace(/^(\#{1,6})(\S)/gm, "$1 $2");
+      const lines = withHeadingBreaks.split(/\r?\n/);
+      const normalizedLines: string[] = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        if (/^\s*#{1,6}\s*$/.test(lines[index])) {
+          while (index + 1 < lines.length && !lines[index + 1].trim()) {
+            index += 1;
+          }
+          continue;
+        }
+        normalizedLines.push(lines[index]);
+      }
+      return normalizedLines.join("\n");
+    })
+    .join("");
+}
+
+function MarkdownMessage({ content, terminal }: { content: string; terminal?: string }) {
+  const { body, terminalText } = terminalParts(content, terminal);
+  const normalizedBody = normalizeMarkdownBody(body);
+  const lines = normalizedBody.split(/\r?\n/);
+  const blocks: ReactNode[] = [];
+  let codeBuffer: string[] = [];
+  let inCode = false;
+
+  function flushCode(index: number) {
+    if (codeBuffer.length > 0) {
+      blocks.push(
+        <pre className="markdown-code" key={`code-${index}`}>
+          <code>{codeBuffer.join("\n")}</code>
+        </pre>
+      );
+      codeBuffer = [];
+    }
+  }
+
+  lines.forEach((line, index) => {
+    if (line.trim().startsWith("```")) {
+      if (inCode) {
+        flushCode(index);
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      return;
+    }
+    if (inCode) {
+      codeBuffer.push(line);
+      return;
+    }
+    if (!line.trim()) {
+      blocks.push(<div className="markdown-gap" key={`gap-${index}`} />);
+      return;
+    }
+    const trimmedLine = line.trim();
+    if (trimmedLine === THINKING_TEXT || trimmedLine === "\u601d\u8003\u4e2d...") {
+      blocks.push(
+        <p className="markdown-thinking" key={`thinking-${index}`}>
+          {line}
+        </p>
+      );
+      return;
+    }
+    const heading = /^(#{1,6})\s*(.+)$/.exec(line);
+    if (heading) {
+      const Tag = (`h${Math.min(heading[1].length + 2, 5)}` as keyof JSX.IntrinsicElements);
+      blocks.push(<Tag key={`h-${index}`}>{markdownInline(heading[2], `h-${index}`)}</Tag>);
+      return;
+    }
+    const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (bullet) {
+      blocks.push(
+        <p className="markdown-list" key={`li-${index}`}>
+          <span className="markdown-list-marker" aria-hidden="true">
+            -
+          </span>
+          <span>{markdownInline(bullet[1], `li-${index}`)}</span>
+        </p>
+      );
+      return;
+    }
+    blocks.push(<p key={`p-${index}`}>{markdownInline(line, `p-${index}`)}</p>);
+  });
+  flushCode(lines.length + 1);
+
   return (
-    <>
-      {body ? <p>{body}</p> : null}
+    <div className="markdown-message">
+      {blocks}
       {terminalText ? (
-        <p>
+        <p className="terminal-line">
           <strong>{terminalText}</strong>
         </p>
       ) : null}
-    </>
+    </div>
+  );
+}
+
+function PermissionIcon({ level }: { level: PermissionLevel }) {
+  if (level.code === "READ_ONLY") {
+    return <BookOpen size={18} />;
+  }
+  if (level.code === "FULL_ACCESS") {
+    return <ShieldAlert size={18} />;
+  }
+  return <ShieldCheck size={18} />;
+}
+
+function patchLines(snippet?: string) {
+  return (snippet || "")
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .map((line, index) => {
+      const sign = line.charAt(0);
+      const match = /^([+\- ])\s*(\d+)(?:\s{2,}(.*))?$/.exec(line);
+      return {
+        key: `${index}-${line}`,
+        kind: sign === "+" ? "add" : sign === "-" ? "delete" : "context",
+        sign,
+        lineNo: match?.[2] || "",
+        text: match ? (match[3] ?? "") : line.slice(1).trimStart()
+      };
+    });
+}
+
+function DiffSummaryCard({ diff }: { diff?: ConversationMessage["diffSummary"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [openFiles, setOpenFiles] = useState<Set<string>>(() => new Set());
+  if (!diff || !diff.files || diff.files.length === 0) {
+    return null;
+  }
+  const visibleFiles = expanded ? diff.files : diff.files.slice(0, 3);
+  const hiddenCount = Math.max(0, diff.files.length - visibleFiles.length);
+  const toggleFile = (key: string) => {
+    setOpenFiles((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+  return (
+    <div className="diff-card">
+      <div className="diff-card-head">
+        <FileDiff size={18} />
+        <div>
+          <strong>已编辑 {diff.totalFiles} 个文件</strong>
+          <span className="diff-stats">
+            <span className="diff-added">+{diff.totalAddedLines}</span>
+            <span className="diff-deleted">-{diff.totalDeletedLines}</span>
+          </span>
+        </div>
+      </div>
+      <div className="diff-files">
+        {visibleFiles.map((file, index) => {
+          const key = `${file.path}-${file.changeType}-${index}`;
+          const isOpen = openFiles.has(key);
+          const lines = patchLines((file as { patchSnippet?: string }).patchSnippet);
+          return (
+            <div className="diff-file" key={key}>
+              <div className="diff-file-row">
+                <span title={file.path}>{file.path}</span>
+                <button className="diff-file-toggle" onClick={() => toggleFile(key)} disabled={lines.length === 0}>
+                  <span className="diff-added">+{file.addedLines}</span>
+                  <span className="diff-deleted">-{file.deletedLines}</span>
+                  <ChevronDown className={isOpen ? "open" : ""} size={15} />
+                </button>
+              </div>
+              {isOpen && lines.length > 0 ? (
+                <div className="diff-patch">
+                  {lines.map((line) => (
+                    <div className={`diff-patch-line ${line.kind}`} key={line.key}>
+                      <span className="diff-sign">{line.sign}</span>
+                      <span className="diff-line-no">{line.lineNo}</span>
+                      <code>{line.text || "\u00A0"}</code>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      {hiddenCount > 0 || expanded ? (
+        <button className="diff-expand" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "收起" : `再显示 ${hiddenCount} 个文件`}
+          <ChevronDown size={15} />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -143,7 +368,8 @@ export function App() {
   const [editingMessageId, setEditingMessageId] = useState("");
   const [editingContent, setEditingContent] = useState("");
   const [permissionLevels, setPermissionLevels] = useState<PermissionLevel[]>([]);
-  const [permissionLevel, setPermissionLevel] = useState("L1_READ_ONLY");
+  const [permissionLevel, setPermissionLevel] = useState("DEFAULT");
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
   const [modelProviders, setModelProviders] = useState<ModelProvider[]>([]);
   const [model, setModel] = useState("");
   const [view, setView] = useState<"chat" | "model-settings">("chat");
@@ -170,19 +396,24 @@ export function App() {
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState("");
   const conversationSurfaceRef = useRef<HTMLElement | null>(null);
+  const copyResetTimerRef = useRef<number | null>(null);
   const backendStarting = useRef(false);
   const initialDataLoaded = useRef(false);
   const followLatestMessage = useRef(true);
   const completedRunRef = useRef("");
   const terminalSyncRef = useRef("");
   const selectedConversationRef = useRef("");
+  const appliedConversationDefaultsRef = useRef("");
   const processedSseEventIdsRef = useRef<Set<string>>(new Set());
   const streamCallNoByRunRef = useRef<Record<string, string>>({});
   const api = useMemo(() => createApi(settings.baseUrl), [settings.baseUrl]);
   const sse = useSseRunEvents(settings.baseUrl, activeRunId);
   const selectedPermission = permissionLevels.find((item) => item.code === permissionLevel);
   const hasModelCandidates = modelProviders.length > 0;
+  const selectedModelLabel = modelProviders.find((item) => item.modelKey === model)?.displayName || model || "请配置模型";
+  const modelPickerWidth = Math.max(12, Math.min(34, selectedModelLabel.length + 7));
   const currentWorkspace = workspaces.find((item) => item.workspaceKey === selectedWorkspace);
   const currentConversation = conversations.find((item) => item.conversationId === selectedConversation);
   const activeInSelectedConversation =
@@ -198,7 +429,27 @@ export function App() {
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
+    if (!selectedConversation) {
+      appliedConversationDefaultsRef.current = "";
+    }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    if (!selectedConversation || appliedConversationDefaultsRef.current === selectedConversation) {
+      return;
+    }
+    const conversation = conversations.find((item) => item.conversationId === selectedConversation);
+    if (!conversation) {
+      return;
+    }
+    if (conversation.lastPermissionLevel && permissionLevels.some((item) => item.code === conversation.lastPermissionLevel)) {
+      setPermissionLevel(conversation.lastPermissionLevel);
+    }
+    if (conversation.defaultModel && modelProviders.some((item) => item.modelKey === conversation.defaultModel)) {
+      setModel(conversation.defaultModel);
+    }
+    appliedConversationDefaultsRef.current = selectedConversation;
+  }, [conversations, modelProviders, permissionLevels, selectedConversation]);
 
   useEffect(() => {
     processedSseEventIdsRef.current.clear();
@@ -360,6 +611,32 @@ export function App() {
       return;
     }
     surface.scrollTop = surface.scrollHeight;
+  }, []);
+
+
+  const copyMessageContent = useCallback(async (messageId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(stripThinking(content));
+      if (copyResetTimerRef.current) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+      setCopiedMessageId(messageId);
+      copyResetTimerRef.current = window.setTimeout(() => {
+        setCopiedMessageId("");
+        copyResetTimerRef.current = null;
+      }, 1200);
+      setNotice("???????");
+    } catch {
+      setNotice("?????????????");
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -637,7 +914,7 @@ export function App() {
         workspaceKey: selectedWorkspace,
         title: currentWorkspace?.workspaceKey ? `${currentWorkspace.workspaceKey} 新对话` : "新对话",
         defaultModel: model,
-        defaultPermissionLevel: permissionLevel
+        lastPermissionLevel: permissionLevel
       });
       setSelectedConversation(created.conversationId);
       await refreshConversations();
@@ -804,7 +1081,7 @@ export function App() {
           workspaceKey: selectedWorkspace,
           title: submittedTask.slice(0, 28),
           defaultModel: model,
-          defaultPermissionLevel: permissionLevel
+          lastPermissionLevel: permissionLevel
         });
         conversationId = conversation.conversationId;
         setSelectedConversation(conversationId);
@@ -1053,7 +1330,7 @@ function terminalForMessage(message: ConversationMessage) {
                   onClick={() => setSelectedConversation(conversation.conversationId)}
                 >
                   <span>{conversation.title}</span>
-                  <small>{conversation.defaultPermissionLevel}</small>
+                  <small>{permissionLevels.find((level) => level.code === conversation.lastPermissionLevel)?.displayName || conversation.lastPermissionLevel || "??"}</small>
                 </button>
                 <button
                   className="delete-list-item"
@@ -1227,7 +1504,19 @@ function terminalForMessage(message: ConversationMessage) {
                       </div>
                     </div>
                   ) : (
-                    renderMessageContent(message.content, terminalForMessage(message))
+                    <>
+                      <MarkdownMessage content={message.content} terminal={terminalForMessage(message)} />
+                      <div className="message-footer">
+                        <button
+                          className={copiedMessageId === message.messageId ? "copied" : ""}
+                          title={copiedMessageId === message.messageId ? "已复制" : "复制"}
+                          onClick={() => void copyMessageContent(message.messageId, message.content)}
+                        >
+                          {copiedMessageId === message.messageId ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      {message.role === "AGENT" ? <DiffSummaryCard diff={message.diffSummary} /> : null}
+                    </>
                   )}
                 </article>
               ))}
@@ -1242,15 +1531,48 @@ function terminalForMessage(message: ConversationMessage) {
             onChange={(event) => setTask(event.target.value)}
           />
           <div className="composer-toolbar">
-            <select value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>
-              {permissionLevels.map((level) => (
-                <option value={level.code} key={level.code}>
-                  {level.displayName}
-                </option>
-              ))}
-              {permissionLevels.length === 0 && <option value="L1_READ_ONLY">只读分析</option>}
-            </select>
-            <select value={model} onChange={(event) => setModel(event.target.value)}>
+            <div className="permission-picker">
+              <button
+                type="button"
+                className="permission-trigger"
+                onClick={() => setPermissionMenuOpen((value) => !value)}
+              >
+                {selectedPermission ? <PermissionIcon level={selectedPermission} /> : <ShieldQuestion size={18} />}
+                <span>{selectedPermission?.displayName || "??"}</span>
+                <ChevronDown size={16} />
+              </button>
+              {permissionMenuOpen && (
+                <div className="permission-menu">
+                  {(permissionLevels.length > 0
+                    ? permissionLevels
+                    : [{ code: "DEFAULT", displayName: "??", description: "???????????????????", allowedFeatures: [], forbiddenFeatures: [], riskNotice: "", icon: "shield-check", dangerous: false }]
+                  ).map((level) => (
+                    <button
+                      type="button"
+                      className={`permission-option ${level.code === permissionLevel ? "selected" : ""} ${level.code === "FULL_ACCESS" ? "warning" : ""}`}
+                      key={level.code}
+                      onClick={() => {
+                        setPermissionLevel(level.code);
+                        setPermissionMenuOpen(false);
+                      }}
+                    >
+                      <PermissionIcon level={level} />
+                      <span>
+                        <strong>{level.displayName}</strong>
+                        <small>{level.description}</small>
+                      </span>
+                      {level.code === permissionLevel && <Check size={16} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <select
+              className="model-picker"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              style={{ width: `${modelPickerWidth}ch` }}
+            >
               {hasModelCandidates ? (
                 modelProviders.map((item) => (
                   <option value={item.modelKey} key={item.modelKey}>

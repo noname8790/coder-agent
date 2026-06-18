@@ -22,9 +22,23 @@ export type Conversation = {
   workspaceKey: string;
   title: string;
   defaultModel?: string;
-  defaultPermissionLevel: string;
+  lastPermissionLevel: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type DiffFile = {
+  path: string;
+  changeType: string;
+  addedLines: number;
+  deletedLines: number;
+};
+
+export type DiffSummary = {
+  totalFiles: number;
+  totalAddedLines: number;
+  totalDeletedLines: number;
+  files: DiffFile[];
 };
 
 export type ConversationMessage = {
@@ -38,6 +52,7 @@ export type ConversationMessage = {
   progress?: string;
   transient?: boolean;
   createdAt?: string;
+  diffSummary?: DiffSummary;
 };
 
 export type PermissionLevel = {
@@ -47,6 +62,8 @@ export type PermissionLevel = {
   allowedFeatures: string[];
   forbiddenFeatures: string[];
   riskNotice: string;
+  icon?: string;
+  dangerous?: boolean;
 };
 
 export type RunArtifact = {
@@ -86,6 +103,7 @@ export type AgentRun = {
   startedAt?: string;
   endedAt?: string;
   artifacts?: RunArtifact[];
+  diffSummary?: DiffSummary;
 };
 
 export type AgentRunDraft = {

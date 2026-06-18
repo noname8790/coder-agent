@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 覆盖文本文件工具，仅在 L3 权限下可见和可执行。
+ * 覆盖文本文件工具，在默认权限审批通过后可执行，完全控制权限下可直接执行。
  */
 @Component
 @RequiredArgsConstructor

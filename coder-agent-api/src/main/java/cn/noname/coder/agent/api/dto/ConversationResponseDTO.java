@@ -10,7 +10,7 @@ public record ConversationResponseDTO(
         String workspaceKey,
         String title,
         String defaultModel,
-        String defaultPermissionLevel,
+        String lastPermissionLevel,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

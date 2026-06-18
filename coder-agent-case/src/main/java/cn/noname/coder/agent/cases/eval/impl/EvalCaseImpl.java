@@ -59,7 +59,7 @@ public class EvalCaseImpl implements IEvalCase {
                 .name(request.name())
                 .workspaceKey(request.workspaceKey())
                 .task(request.task())
-                .permissionLevel(StringUtils.hasText(request.permissionLevel()) ? request.permissionLevel() : "L1_READ_ONLY")
+                .permissionLevel(StringUtils.hasText(request.permissionLevel()) ? request.permissionLevel() : "DEFAULT")
                 .modelKey(request.modelKey())
                 .expectedOutcome(request.expectedOutcome())
                 .evaluatorType(StringUtils.hasText(request.evaluatorType()) ? request.evaluatorType() : "RULE")

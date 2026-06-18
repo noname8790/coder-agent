@@ -3,6 +3,7 @@ package cn.noname.coder.agent.infrastructure.adapter.port;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
 import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
 import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
@@ -31,6 +32,8 @@ public class ArtifactFilePort implements IArtifactPort {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<Map<String, Object>>> MAP_LIST_TYPE = new TypeReference<>() {
     };
 
     @Override
@@ -131,7 +134,7 @@ public class ArtifactFilePort implements IArtifactPort {
         Files.writeString(review, buildReviewSummary(run, changedFiles, testReports), StandardCharsets.UTF_8);
         artifacts.add(artifact(run.getRunId(), ArtifactType.REVIEW_SUMMARY, workspace, review));
         if (run.getPermissionLevel() != null
-                && "L3_REPO_WRITE".equals(run.getPermissionLevel().name())
+                && run.getPermissionLevel().atLeast(AgentPermissionLevel.DEFAULT)
                 && changedFiles != null
                 && !changedFiles.isEmpty()) {
             Path prDraft = runDir(workspace, run.getRunId()).resolve("pull-request.md");
@@ -159,6 +162,16 @@ public class ArtifactFilePort implements IArtifactPort {
         return events;
     }
 
+    @Override
+    @SneakyThrows
+    public List<Map<String, Object>> readChangedFiles(WorkspaceDescriptor workspace, String runId) {
+        Path file = runDir(workspace, runId).resolve("changed-files.json");
+        if (!Files.exists(file)) {
+            return List.of();
+        }
+        return objectMapper.readValue(file.toFile(), MAP_LIST_TYPE);
+    }
+
     private Path runDir(WorkspaceDescriptor workspace, String runId) {
         return workspace.rootPath().resolve(".coder").resolve("runs").resolve(runId).normalize();
     }
@@ -170,7 +183,74 @@ public class ArtifactFilePort implements IArtifactPort {
         item.put("beforeHash", changedFile.beforeHash());
         item.put("afterHash", changedFile.afterHash());
         item.put("toolCallNo", changedFile.toolCallNo());
+        DiffStats stats = diffStats(changedFile.beforeContent(), changedFile.afterContent());
+        item.put("addedLines", stats.addedLines());
+        item.put("deletedLines", stats.deletedLines());
+        item.put("patchSnippet", stats.patchSnippet());
         return item;
+    }
+
+    private DiffStats diffStats(String beforeContent, String afterContent) {
+        List<String> before = lines(beforeContent);
+        List<String> after = lines(afterContent);
+        int prefix = 0;
+        while (prefix < before.size() && prefix < after.size() && before.get(prefix).equals(after.get(prefix))) {
+            prefix++;
+        }
+        int suffix = 0;
+        while (suffix < before.size() - prefix
+                && suffix < after.size() - prefix
+                && before.get(before.size() - 1 - suffix).equals(after.get(after.size() - 1 - suffix))) {
+            suffix++;
+        }
+        int beforeEnd = before.size() - suffix;
+        int afterEnd = after.size() - suffix;
+        int deleted = Math.max(0, beforeEnd - prefix);
+        int added = Math.max(0, afterEnd - prefix);
+        return new DiffStats(added, deleted, buildPatchSnippet(before, after, prefix, beforeEnd, afterEnd));
+    }
+
+    private List<String> lines(String content) {
+        if (content == null || content.isEmpty()) {
+            return List.of();
+        }
+        return content.lines().toList();
+    }
+
+    private String buildPatchSnippet(List<String> before, List<String> after, int prefix, int beforeEnd, int afterEnd) {
+        if (prefix == beforeEnd && prefix == afterEnd) {
+            return "";
+        }
+        StringBuilder patch = new StringBuilder();
+        int contextStart = Math.max(0, prefix - 2);
+        int contextBeforeEnd = Math.min(before.size(), beforeEnd + 2);
+        int contextAfterEnd = Math.min(after.size(), afterEnd + 2);
+        for (int i = contextStart; i < prefix; i++) {
+            appendPatchLine(patch, " ", i + 1, before.get(i));
+        }
+        for (int i = prefix; i < beforeEnd; i++) {
+            appendPatchLine(patch, "-", i + 1, before.get(i));
+        }
+        for (int i = prefix; i < afterEnd; i++) {
+            appendPatchLine(patch, "+", i + 1, after.get(i));
+        }
+        int contextEnd = Math.max(contextBeforeEnd, contextAfterEnd);
+        for (int i = Math.max(beforeEnd, afterEnd); i < contextEnd && i < before.size(); i++) {
+            appendPatchLine(patch, " ", i + 1, before.get(i));
+        }
+        return patch.toString().stripTrailing();
+    }
+
+    private void appendPatchLine(StringBuilder patch, String sign, int lineNo, String content) {
+        patch.append(sign)
+                .append(" ")
+                .append(lineNo)
+                .append("     ")
+                .append(content)
+                .append(System.lineSeparator());
+    }
+
+    private record DiffStats(int addedLines, int deletedLines, String patchSnippet) {
     }
 
     private String buildDiff(List<ChangedFile> changedFiles) {
@@ -256,7 +336,7 @@ public class ArtifactFilePort implements IArtifactPort {
         markdown.append("# Agent Run Review Summary").append(System.lineSeparator()).append(System.lineSeparator());
         markdown.append("- runId: ").append(run.getRunId()).append(System.lineSeparator());
         markdown.append("- task: ").append(run.getTask()).append(System.lineSeparator());
-        markdown.append("- permissionLevel: ").append(run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name()).append(System.lineSeparator());
+        markdown.append("- permissionLevel: ").append(run.getPermissionLevel() == null ? "DEFAULT" : run.getPermissionLevel().name()).append(System.lineSeparator());
         markdown.append("- model: ").append(run.getModel()).append(System.lineSeparator()).append(System.lineSeparator());
         markdown.append("## Changed Files").append(System.lineSeparator());
         if (changedFiles == null || changedFiles.isEmpty()) {

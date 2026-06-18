@@ -63,6 +63,22 @@ class RunShellToolTest {
     }
 
     @Test
+    void shouldHandleCdOnlyWithoutStartingShellProcess() throws Exception {
+        // Given workspace 子目录存在
+        Files.createDirectories(workspaceRoot.resolve("demo"));
+        RunShellTool tool = new RunShellTool(new AgentRuntimeProperties());
+
+        // When 模型只请求切换目录
+        var result = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"cd demo\"}");
+
+        // Then 工具直接返回目录确认结果，不进入 PowerShell 子进程
+        assertEquals(CallStatus.SUCCESS, result.status());
+        assertEquals(0, result.exitCode());
+        assertTrue(result.summary().contains("demo"));
+    }
+
+    @Test
     void shouldReturnFailedGivenAllowedCommandExitsNonZero() {
         AgentRuntimeProperties properties = new AgentRuntimeProperties();
         properties.getTools().getAllowedCommandPrefixes().add("java -bad-option");
@@ -74,5 +90,25 @@ class RunShellToolTest {
         assertEquals(CallStatus.FAILED, result.status());
         assertNotEquals(0, result.exitCode());
         assertTrue(result.summary().contains("Unrecognized option") || result.summary().contains("Error"));
+    }
+
+    @Test
+    void shouldConsumeLargeOutputWhileProcessIsRunning() throws Exception {
+        // Given 命令会输出大量内容，足以暴露 stdout 管道未及时消费导致的 waitFor 卡死问题
+        Files.writeString(workspaceRoot.resolve("big-output.bat"),
+                "@echo off\r\nfor /L %%i in (1,1,20000) do echo line %%i\r\n");
+        AgentRuntimeProperties properties = new AgentRuntimeProperties();
+        properties.getTools().setShellTimeoutSeconds(15);
+        properties.getTools().getAllowedCommandPrefixes().add("cmd /c");
+        RunShellTool tool = new RunShellTool(properties);
+
+        // When 执行大输出命令
+        var result = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"cmd /c big-output.bat\"}");
+
+        // Then 命令正常结束，并且可以读取到尾部输出
+        assertEquals(CallStatus.SUCCESS, result.status());
+        assertEquals(0, result.exitCode());
+        assertTrue(result.summary().contains("line 20000"));
     }
 }

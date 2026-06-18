@@ -27,8 +27,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,7 +52,7 @@ class CreateAgentRunCaseImplTest {
                 .conversationId("conv_1")
                 .workspaceKey("demo")
                 .defaultModel("glm-5")
-                .defaultPermissionLevel(AgentPermissionLevel.L1_READ_ONLY)
+                .lastPermissionLevel(AgentPermissionLevel.READ_ONLY)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -77,7 +75,7 @@ class CreateAgentRunCaseImplTest {
                 conversationRepository, artifactPort, modelConfigPort, contextSnapshotRepository, memoryService,
                 toolApprovalRepository, properties, executor, new SyncTaskExecutor());
 
-        createCase.create(new CreateAgentRunRequestDTO("demo", "new task", "glm-5", "conv_1", "L1_READ_ONLY", "msg_1"));
+        createCase.create(new CreateAgentRunRequestDTO("demo", "new task", "glm-5", "conv_1", "READ_ONLY", "msg_1"));
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(conversationRepository).updateMessage(messageCaptor.capture());

@@ -31,13 +31,15 @@ class PermissionLevelControllerTest {
 
     @Test
     void shouldReturnPermissionLevelsGivenQuery() throws Exception {
-        // Given 权限等级用例返回 L1
+        // Given 权限等级用例返回只读档
         when(queryPermissionLevelCase.list()).thenReturn(List.of(new PermissionLevelDTO(
-                "L1_READ_ONLY", "只读分析", "只读", List.of("读取"), List.of("写入"), "低风险")));
+                "READ_ONLY", "只读", "只允许读取和分析仓库",
+                List.of("读取"), List.of("写入"), "低风险", "book-open", false)));
 
         // When 查询权限等级 / Then 返回说明
         mockMvc.perform(get("/api/permission-levels"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].code").value("L1_READ_ONLY"));
+                .andExpect(jsonPath("$.data[0].code").value("READ_ONLY"));
     }
 }
+

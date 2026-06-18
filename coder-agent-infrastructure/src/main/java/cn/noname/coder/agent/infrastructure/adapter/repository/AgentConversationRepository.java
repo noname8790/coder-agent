@@ -163,7 +163,7 @@ public class AgentConversationRepository implements IAgentConversationRepository
         po.setWorkspaceKey(conversation.getWorkspaceKey());
         po.setTitle(conversation.getTitle());
         po.setDefaultModel(conversation.getDefaultModel());
-        po.setDefaultPermissionLevel(conversation.getDefaultPermissionLevel() == null ? null : conversation.getDefaultPermissionLevel().name());
+        po.setLastPermissionLevel(conversation.getLastPermissionLevel() == null ? null : conversation.getLastPermissionLevel().name());
         po.setCreatedAt(conversation.getCreatedAt());
         po.setUpdatedAt(conversation.getUpdatedAt());
         return po;
@@ -176,7 +176,7 @@ public class AgentConversationRepository implements IAgentConversationRepository
                 .workspaceKey(po.getWorkspaceKey())
                 .title(po.getTitle())
                 .defaultModel(po.getDefaultModel())
-                .defaultPermissionLevel(AgentPermissionLevel.parse(po.getDefaultPermissionLevel()))
+                .lastPermissionLevel(AgentPermissionLevel.parse(po.getLastPermissionLevel()))
                 .createdAt(po.getCreatedAt())
                 .updatedAt(po.getUpdatedAt())
                 .build();

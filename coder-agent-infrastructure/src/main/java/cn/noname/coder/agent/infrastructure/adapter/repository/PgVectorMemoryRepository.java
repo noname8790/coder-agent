@@ -92,10 +92,9 @@ public class PgVectorMemoryRepository implements IVectorMemoryPort {
             if (runId == null || runId.isBlank()) {
                 continue;
             }
-            jdbcTemplate.update("DELETE FROM " + tableName() + " WHERE workspace_key = ? AND source_id = ?",
-                    workspaceKey, runId);
-            jdbcTemplate.update("DELETE FROM " + tableName() + " WHERE workspace_key = ? AND source_id LIKE ? ESCAPE '\\'",
-                    workspaceKey, escapeLike(runId + ":") + "%");
+            String prefix = runId + ":";
+            jdbcTemplate.update("DELETE FROM " + tableName() + " WHERE workspace_key = ? AND (source_id = ? OR LEFT(source_id, ?) = ?)",
+                    workspaceKey, runId, prefix.length(), prefix);
         }
     }
 
@@ -128,13 +127,6 @@ public class PgVectorMemoryRepository implements IVectorMemoryPort {
 
     private String quoteIdentifier(String identifier) {
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
-    }
-
-    private String escapeLike(String value) {
-        return value
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
     }
 
     private String toVectorLiteral(List<Double> embedding) {

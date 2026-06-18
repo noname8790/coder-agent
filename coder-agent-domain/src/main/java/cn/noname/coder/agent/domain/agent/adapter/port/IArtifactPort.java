@@ -32,4 +32,8 @@ public interface IArtifactPort {
     }
 
     List<Map<String, Object>> readTrace(WorkspaceDescriptor workspace, String runId);
+
+    default List<Map<String, Object>> readChangedFiles(WorkspaceDescriptor workspace, String runId) {
+        return List.of();
+    }
 }

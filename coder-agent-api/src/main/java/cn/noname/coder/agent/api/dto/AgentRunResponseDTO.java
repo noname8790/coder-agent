@@ -36,6 +36,7 @@ public record AgentRunResponseDTO(
         LocalDateTime createdAt,
         LocalDateTime startedAt,
         LocalDateTime endedAt,
-        List<RunArtifactDTO> artifacts
+        List<RunArtifactDTO> artifacts,
+        DiffSummaryDTO diffSummary
 ) {
 }

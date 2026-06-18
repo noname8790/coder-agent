@@ -11,6 +11,8 @@ public record PermissionLevelDTO(
         String description,
         List<String> allowedFeatures,
         List<String> forbiddenFeatures,
-        String riskNotice
+        String riskNotice,
+        String icon,
+        boolean dangerous
 ) {
 }

@@ -2,13 +2,15 @@ package cn.noname.coder.agent.cases.agent.impl;
 
 import cn.noname.coder.agent.api.dto.AgentRunResponseDTO;
 import cn.noname.coder.agent.api.dto.RunArtifactDTO;
+import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunCase;
+import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
+import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
-import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
 import cn.noname.coder.agent.types.enums.ArtifactType;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,9 @@ public class QueryAgentRunCaseImpl implements IQueryAgentRunCase {
     private final IAgentRunRepository runRepository;
     private final IAgentRecordRepository recordRepository;
     private final IContextSnapshotRepository contextSnapshotRepository;
+    private final IWorkspacePort workspacePort;
+    private final IArtifactPort artifactPort;
+    private final DiffSummaryAssembler diffSummaryAssembler;
 
     @Override
     public AgentRunResponseDTO query(String runId) {
@@ -36,13 +41,15 @@ public class QueryAgentRunCaseImpl implements IQueryAgentRunCase {
         ContextSnapshot latestSnapshot = contextSnapshotRepository.listByRunId(runId).stream()
                 .reduce((previous, current) -> current)
                 .orElse(null);
+        var workspace = workspacePort.resolve(run.getWorkspaceKey()).orElse(null);
+        var diffSummary = diffSummaryAssembler.load(artifactPort, workspace, runId);
         return new AgentRunResponseDTO(
                 run.getRunId(),
                 run.getWorkspaceKey(),
                 run.getConversationId(),
                 run.getTask(),
                 run.getModel(),
-                run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name(),
+                run.getPermissionLevel() == null ? "DEFAULT" : run.getPermissionLevel().name(),
                 run.getStatus().name(),
                 run.getFinalAnswer(),
                 run.getFailureReason(),
@@ -68,7 +75,8 @@ public class QueryAgentRunCaseImpl implements IQueryAgentRunCase {
                 run.getEndedAt(),
                 artifacts.stream()
                         .map(a -> new RunArtifactDTO(a.getArtifactType().name(), a.getRelativePath(), a.getFileSize()))
-                        .toList()
+                        .toList(),
+                diffSummary
         );
     }
 }

@@ -7,6 +7,6 @@ public record CreateConversationRequestDTO(
         String workspaceKey,
         String title,
         String defaultModel,
-        String defaultPermissionLevel
+        String lastPermissionLevel
 ) {
 }

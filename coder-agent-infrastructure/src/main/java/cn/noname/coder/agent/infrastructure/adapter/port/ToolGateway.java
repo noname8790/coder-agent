@@ -108,10 +108,10 @@ public class ToolGateway implements IToolGateway {
             return false;
         }
         if ("apply_patch".equals(toolName) || "write_file".equals(toolName)) {
-            return permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT);
+            return permissionLevel.atLeast(AgentPermissionLevel.DEFAULT);
         }
-        if (Set.of("overwrite_file", "delete_file", "generate_pr_draft").contains(toolName)) {
-            return permissionLevel.atLeast(AgentPermissionLevel.L3_REPO_WRITE);
+        if (Set.of("overwrite_file", "delete_file", "generate_pr_draft", "git_add", "git_commit").contains(toolName)) {
+            return permissionLevel.atLeast(AgentPermissionLevel.DEFAULT);
         }
         return true;
     }
@@ -134,15 +134,15 @@ public class ToolGateway implements IToolGateway {
     private ToolResult rejectShellIfNotAllowed(AgentPermissionLevel permissionLevel, String argumentsJson) {
         String command = ToolJson.string(ToolJson.parse(argumentsJson), "command", "").trim().toLowerCase();
         if (command.startsWith("git push") || command.startsWith("git clean") || command.startsWith("git reset --hard")) {
-            return rejected("第三版禁止高风险 Git 操作：" + command, "DANGEROUS_COMMAND");
+            return rejected("禁止高风险 Git 操作：" + command, "DANGEROUS_COMMAND");
         }
-        if (isGitWriteCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L3_REPO_WRITE)) {
+        if (isGitWriteCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.DEFAULT)) {
             return rejected("当前权限等级禁止 Git 写入命令：" + command, "PERMISSION_REJECTED");
         }
-        if (isTestCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
+        if (isTestCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.DEFAULT)) {
             return rejected("当前权限等级禁止运行测试", "PERMISSION_REJECTED");
         }
-        if (isBuildCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.L2_SAFE_EDIT)) {
+        if (isBuildCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.DEFAULT)) {
             return rejected("当前权限等级禁止运行构建", "PERMISSION_REJECTED");
         }
         return null;
@@ -179,6 +179,6 @@ public class ToolGateway implements IToolGateway {
     }
 
     private AgentPermissionLevel permissionLevel(AgentRun run) {
-        return run.getPermissionLevel() == null ? AgentPermissionLevel.L1_READ_ONLY : run.getPermissionLevel();
+        return run.getPermissionLevel() == null ? AgentPermissionLevel.DEFAULT : run.getPermissionLevel();
     }
 }

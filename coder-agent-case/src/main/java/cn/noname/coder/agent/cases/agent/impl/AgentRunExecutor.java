@@ -26,6 +26,7 @@ import cn.noname.coder.agent.domain.agent.model.entity.ToolApprovalRequest;
 import cn.noname.coder.agent.domain.agent.model.entity.ToolCall;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunEvent;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunEventType;
+import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
 import cn.noname.coder.agent.domain.agent.model.valobj.ContextAssemblyResult;
 import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
@@ -629,7 +630,7 @@ public class AgentRunExecutor {
                     tool=%s
                     arguments=%s
                     reason=%s
-                    instruction=The user rejected this high-risk action. Do not request the same tool with the same arguments again. Choose a safer path or explain the blocker.
+                    instruction=用户已经拒绝这个高风险动作。不要用相同参数再次请求同一个工具；请选择更安全的路径，或明确说明当前阻塞原因。
                     """.formatted(
                     approval.getToolName(),
                     approval.getArgumentsJson() == null ? "{}" : approval.getArgumentsJson(),
@@ -662,7 +663,7 @@ public class AgentRunExecutor {
                     TOOL_APPROVAL_APPROVED
                     tool=%s
                     arguments=%s
-                    instruction=The user approved this high-risk action. Continue with exactly this tool and arguments; do not ask for approval again.
+                    instruction=用户已经批准这个高风险动作。请继续执行这一个工具和参数，不要再次请求同一审批。
                     """.formatted(
                     approval.getToolName(),
                     approval.getArgumentsJson() == null ? "{}" : approval.getArgumentsJson());
@@ -683,6 +684,17 @@ public class AgentRunExecutor {
 
     private boolean pauseForApprovalIfNeeded(AgentRun run, WorkspaceDescriptor workspace, ToolInvocation invocation) {
         if (!properties.getToolApproval().isEnabled() || !isHighRiskTool(invocation)) {
+            return false;
+        }
+        AgentPermissionLevel permissionLevel = run.getPermissionLevel() == null ? AgentPermissionLevel.DEFAULT : run.getPermissionLevel();
+        if (permissionLevel.bypassesApproval()) {
+            recordAudit(run.getRunId(), AuditEventType.HIGH_RISK_TOOL_USED,
+                    "Full control allowed high-risk tool",
+                    "permissionLevel=" + permissionLevel.name() + ", tool=" + invocation.name()
+                            + ", arguments=" + abbreviate(redact(invocation.argumentsJson()), 500));
+            return false;
+        }
+        if (!permissionLevel.requiresApprovalForHighRiskTool()) {
             return false;
         }
         String safeArguments = normalizeApprovalArguments(redact(invocation.argumentsJson()));
@@ -737,7 +749,11 @@ public class AgentRunExecutor {
         if (invocation == null) {
             return false;
         }
-        if ("overwrite_file".equals(invocation.name()) || "delete_file".equals(invocation.name())) {
+        if ("overwrite_file".equals(invocation.name())
+                || "delete_file".equals(invocation.name())
+                || "generate_pr_draft".equals(invocation.name())
+                || "git_add".equals(invocation.name())
+                || "git_commit".equals(invocation.name())) {
             return true;
         }
         return "run_shell".equals(invocation.name())
@@ -1011,7 +1027,7 @@ public class AgentRunExecutor {
         result.put("runId", run.getRunId());
         result.put("status", run.getStatus().name());
         result.put("model", run.getModel());
-        result.put("permissionLevel", run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name());
+        result.put("permissionLevel", run.getPermissionLevel() == null ? "DEFAULT" : run.getPermissionLevel().name());
         result.put("conversationId", run.getConversationId());
         result.put("gitBranch", run.getGitBranch());
         result.put("commitHash", run.getCommitHash());
@@ -1019,8 +1035,8 @@ public class AgentRunExecutor {
         result.put("changedFileCount", editState.changedFiles.size());
         result.put("testStatus", testStatus(editState));
         result.put("reviewArtifacts", reviewArtifactPaths(run, editState));
-        boolean l3 = run.getPermissionLevel() != null && "L3_REPO_WRITE".equals(run.getPermissionLevel().name());
-        result.put("prDraftPath", editState.changedFiles.isEmpty() || !l3 ? null : ".coder/runs/" + run.getRunId() + "/pull-request.md");
+        boolean canGeneratePrDraft = run.getPermissionLevel() != null && run.getPermissionLevel().atLeast(AgentPermissionLevel.DEFAULT);
+        result.put("prDraftPath", editState.changedFiles.isEmpty() || !canGeneratePrDraft ? null : ".coder/runs/" + run.getRunId() + "/pull-request.md");
         result.put("rollbackArtifacts", editState.changedFiles.isEmpty()
                 ? List.of()
                 : List.of(".coder/runs/" + run.getRunId() + "/rollback.patch", ".coder/runs/" + run.getRunId() + "/file-backup/"));
@@ -1060,6 +1076,13 @@ public class AgentRunExecutor {
         if (!StringUtils.hasText(content)) {
             String draftContent = draftService.content(run.getRunId());
             content = StringUtils.hasText(draftContent) ? draftContent : existingContent;
+        }
+        if (!StringUtils.hasText(content) && run.getStatus() == AgentRunStatus.FAILED) {
+            String reason = StringUtils.hasText(run.getFailureReason()) ? run.getFailureReason() : "\u672a\u77e5\u539f\u56e0";
+            content = "\u8fd0\u884c\u5931\u8d25\uff1a" + reason;
+        }
+        if (!StringUtils.hasText(content) && run.getStatus() == AgentRunStatus.CANCELLED) {
+            content = "\u5df2\u53d6\u6d88";
         }
         if (StringUtils.hasText(content)) {
             saveNewAgentMessage(run, content);
@@ -1103,7 +1126,7 @@ public class AgentRunExecutor {
             paths.add(".coder/runs/" + run.getRunId() + "/changed-files.json");
             paths.add(".coder/runs/" + run.getRunId() + "/rollback.patch");
             paths.add(".coder/runs/" + run.getRunId() + "/file-backup/");
-            if (run.getPermissionLevel() != null && "L3_REPO_WRITE".equals(run.getPermissionLevel().name())) {
+            if (run.getPermissionLevel() != null && run.getPermissionLevel().atLeast(AgentPermissionLevel.DEFAULT)) {
                 paths.add(".coder/runs/" + run.getRunId() + "/pull-request.md");
             }
         }

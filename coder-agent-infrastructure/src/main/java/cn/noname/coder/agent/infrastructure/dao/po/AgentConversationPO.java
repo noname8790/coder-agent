@@ -19,7 +19,7 @@ public class AgentConversationPO {
     private String workspaceKey;
     private String title;
     private String defaultModel;
-    private String defaultPermissionLevel;
+    private String lastPermissionLevel;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

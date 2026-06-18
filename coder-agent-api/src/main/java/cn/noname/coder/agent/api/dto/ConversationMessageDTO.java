@@ -13,6 +13,7 @@ public record ConversationMessageDTO(
         String content,
         String status,
         String failureReason,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        DiffSummaryDTO diffSummary
 ) {
 }

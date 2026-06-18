@@ -21,7 +21,7 @@ public class AgentConversation {
     private String workspaceKey;
     private String title;
     private String defaultModel;
-    private AgentPermissionLevel defaultPermissionLevel;
+    private AgentPermissionLevel lastPermissionLevel;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

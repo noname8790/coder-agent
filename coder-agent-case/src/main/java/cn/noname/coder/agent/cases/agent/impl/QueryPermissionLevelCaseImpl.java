@@ -5,7 +5,6 @@ import cn.noname.coder.agent.cases.agent.IQueryPermissionLevelCase;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -16,15 +15,16 @@ public class QueryPermissionLevelCaseImpl implements IQueryPermissionLevelCase {
 
     @Override
     public List<PermissionLevelDTO> list() {
-        return Arrays.stream(AgentPermissionLevel.values())
-                .filter(level -> level != AgentPermissionLevel.L4_DANGEROUS_LOCAL)
+        return java.util.Arrays.stream(AgentPermissionLevel.values())
                 .map(level -> new PermissionLevelDTO(
                         level.name(),
                         level.displayName(),
                         level.description(),
                         level.allowedFeatures(),
                         level.forbiddenFeatures(),
-                        level.riskNotice()))
+                        level.riskNotice(),
+                        level.icon(),
+                        level.dangerous()))
                 .toList();
     }
 }

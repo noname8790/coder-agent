@@ -97,12 +97,12 @@ class AgentRunControllerTest {
     void shouldQueryRunGivenExistingRun() throws Exception {
         // Given 运行存在
         when(queryAgentRunCase.query("run_1")).thenReturn(new AgentRunResponseDTO(
-                "run_1", "coder-agent", null, "分析仓库", "model", "L1_READ_ONLY",
+                "run_1", "coder-agent", null, "分析仓库", "model", "READ_ONLY",
                 "SUCCEEDED", "完成", null, null, null,
                 false, 0, "NOT_RUN",
                 1, 1, 0,
                 null, null, null, null, null, null, null, null,
-                100L, LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), List.of()));
+                100L, LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), List.of(), null));
 
         // When 查询运行 / Then 返回状态
         mockMvc.perform(get("/api/agent-runs/run_1"))

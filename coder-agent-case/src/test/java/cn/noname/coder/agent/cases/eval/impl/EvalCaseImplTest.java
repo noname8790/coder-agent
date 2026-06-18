@@ -61,7 +61,7 @@ class EvalCaseImplTest {
             return new CreateAgentRunResponseDTO(runId, "SUCCEEDED", LocalDateTime.now());
         };
         EvalCaseImpl evalCase = new EvalCaseImpl(evalRepository, createRunCase, runRepository, snapshotRepository, new AgentRuntimeProperties());
-        evalCase.createBenchmark(new EvalBenchmarkRequestDTO("读取仓库", "repo", "请分析仓库", "L1_READ_ONLY", null, "完成", "RULE", 30));
+        evalCase.createBenchmark(new EvalBenchmarkRequestDTO("读取仓库", "repo", "请分析仓库", "READ_ONLY", null, "完成", "RULE", 30));
 
         // When 启动 eval run
         var response = evalCase.startRun(new StartEvalRunRequestDTO("模型对比", List.of("glm-5", "qwen")));

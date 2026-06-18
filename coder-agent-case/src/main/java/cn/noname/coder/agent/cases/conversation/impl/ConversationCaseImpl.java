@@ -4,8 +4,10 @@ import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
 import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
+import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
 import cn.noname.coder.agent.cases.memory.MemoryService;
+import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
@@ -45,6 +47,8 @@ public class ConversationCaseImpl implements IConversationCase {
     private final IModelConfigPort modelConfigPort;
     private final IAgentRecordRepository recordRepository;
     private final IToolApprovalRepository toolApprovalRepository;
+    private final IArtifactPort artifactPort;
+    private final DiffSummaryAssembler diffSummaryAssembler;
 
     @Override
     public ConversationResponseDTO create(CreateConversationRequestDTO request) {
@@ -57,19 +61,19 @@ public class ConversationCaseImpl implements IConversationCase {
         if (StringUtils.hasText(model) && modelConfigPort.resolve(model).isEmpty()) {
             throw new AppException("MODEL_NOT_CONFIGURED", "模型未配置：" + model);
         }
-        AgentPermissionLevel permissionLevel = parsePermissionLevel(request.defaultPermissionLevel());
+        AgentPermissionLevel permissionLevel = parsePermissionLevel(request.lastPermissionLevel());
         LocalDateTime now = LocalDateTime.now();
         AgentConversation conversation = AgentConversation.builder()
                 .conversationId("conv_" + UUID.randomUUID().toString().replace("-", ""))
                 .workspaceKey(request.workspaceKey())
                 .title(StringUtils.hasText(request.title()) ? request.title() : "新对话")
                 .defaultModel(model)
-                .defaultPermissionLevel(permissionLevel)
+                .lastPermissionLevel(permissionLevel)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
         conversationRepository.saveConversation(conversation);
-        log.info("创建 Agent 会话 conversationId={} workspaceKey={} defaultPermissionLevel={}",
+        log.info("创建 Agent 会话 conversationId={} workspaceKey={} lastPermissionLevel={}",
                 conversation.getConversationId(), conversation.getWorkspaceKey(), permissionLevel);
         return toDto(conversation);
     }
@@ -200,7 +204,7 @@ public class ConversationCaseImpl implements IConversationCase {
                 conversation.getWorkspaceKey(),
                 conversation.getTitle(),
                 conversation.getDefaultModel(),
-                conversation.getDefaultPermissionLevel() == null ? AgentPermissionLevel.L1_READ_ONLY.name() : conversation.getDefaultPermissionLevel().name(),
+                conversation.getLastPermissionLevel() == null ? AgentPermissionLevel.DEFAULT.name() : conversation.getLastPermissionLevel().name(),
                 conversation.getCreatedAt(),
                 conversation.getUpdatedAt()
         );
@@ -210,6 +214,7 @@ public class ConversationCaseImpl implements IConversationCase {
         AgentRun run = StringUtils.hasText(message.getRunId())
                 ? runRepository.findByRunId(message.getRunId()).orElse(null)
                 : null;
+        var workspace = run == null ? null : workspacePort.resolve(run.getWorkspaceKey()).orElse(null);
         return new ConversationMessageDTO(
                 message.getMessageId(),
                 message.getConversationId(),
@@ -218,7 +223,8 @@ public class ConversationCaseImpl implements IConversationCase {
                 message.getContent(),
                 run == null || run.getStatus() == null ? null : run.getStatus().name(),
                 run == null ? null : run.getFailureReason(),
-                message.getCreatedAt()
+                message.getCreatedAt(),
+                diffSummaryAssembler.load(artifactPort, workspace, message.getRunId())
         );
     }
 }

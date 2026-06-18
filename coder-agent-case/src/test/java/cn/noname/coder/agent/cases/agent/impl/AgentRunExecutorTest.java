@@ -121,7 +121,9 @@ class AgentRunExecutorTest {
 
         harness.executor.execute("run_tool_loop");
 
-        verify(harness.conversationRepository, never()).saveMessage(any());
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(harness.conversationRepository).saveMessage(messageCaptor.capture());
+        assertTrue(!messageCaptor.getValue().getContent().isBlank());
         assertEquals("", harness.draftService.content("run_tool_loop"));
         assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
         assertEquals(2, calls.get());
@@ -162,7 +164,7 @@ class AgentRunExecutorTest {
         assertTrue(secondCallContext.contains("tool=read_file"));
         assertTrue(secondCallContext.contains("\"path\":\"src/test/java/cn/noname/SimpleTest.java\""));
         assertTrue(secondCallContext.contains("status=SUCCESS"));
-        assertTrue(secondCallContext.contains("tool returned no visible content"));
+        assertTrue(secondCallContext.contains("工具没有返回可见内容"));
     }
 
     @Test
@@ -199,8 +201,8 @@ class AgentRunExecutorTest {
                 .findFirst()
                 .orElseThrow();
         assertTrue(toolObservation.required());
-        assertTrue(toolObservation.content().contains("tool call completed"));
-        assertTrue(toolObservation.content().contains("Do not call the same tool"));
+        assertTrue(toolObservation.content().contains("工具调用已经完成"));
+        assertTrue(toolObservation.content().contains("不要用相同参数再次调用同一个工具"));
         assertTrue(toolObservation.content().contains("[F] demoTest.java"));
     }
 
@@ -278,7 +280,7 @@ class AgentRunExecutorTest {
     @Test
     void shouldReusePendingApprovalGivenSameHighRiskToolRequestedAgain() {
         AgentRun run = newRun("run_pending_approval");
-        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
         TestHarness harness = new TestHarness(run);
         doAnswer(invocation -> {
             var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
@@ -303,7 +305,7 @@ class AgentRunExecutorTest {
     @Test
     void shouldRecordToolCallGivenHighRiskToolWaitsApproval() {
         AgentRun run = newRun("run_waiting_approval_record");
-        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
         TestHarness harness = new TestHarness(run);
         doAnswer(invocation -> {
             var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
@@ -328,7 +330,7 @@ class AgentRunExecutorTest {
     @Test
     void shouldExecuteApprovedToolBeforeNextModelCallGivenRunResumedFromApproval() {
         AgentRun run = newRun("run_approved_tool_resume");
-        run.setPermissionLevel(AgentPermissionLevel.L3_REPO_WRITE);
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
         TestHarness harness = new TestHarness(run);
         ToolApprovalRequest approval = ToolApprovalRequest.builder()
                 .approvalId("apv_resume")
@@ -384,14 +386,14 @@ class AgentRunExecutorTest {
         harness.executor.execute("run_repeated_tool_guard");
 
         assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
-        assertTrue(harness.runRef.get().getFailureReason().contains("重复工具调用无法继续推进"));
+        assertTrue(harness.runRef.get().getFailureReason().contains("Repeated successful tool call cannot progress"));
         assertEquals(3, calls.get());
     }
 
     @Test
     void shouldFailImmediatelyGivenShellCommandTimeout() {
         AgentRun run = newRun("run_shell_timeout");
-        run.setPermissionLevel(AgentPermissionLevel.L2_SAFE_EDIT);
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
         run.setMaxModelCalls(5);
         TestHarness harness = new TestHarness(run);
         AtomicInteger calls = new AtomicInteger();
@@ -418,7 +420,7 @@ class AgentRunExecutorTest {
     @Test
     void shouldFailGivenConsecutiveRejectedTools() {
         AgentRun run = newRun("run_rejected_tools");
-        run.setPermissionLevel(AgentPermissionLevel.L2_SAFE_EDIT);
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
         run.setMaxModelCalls(5);
         TestHarness harness = new TestHarness(run);
         AtomicInteger calls = new AtomicInteger();

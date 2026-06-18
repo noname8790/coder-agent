@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.cases.conversation.impl;
 
+import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
 import cn.noname.coder.agent.cases.memory.MemoryService;
-import cn.noname.coder.agent.domain.agent.adapter.port.IEmbeddingGateway;
 import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
@@ -44,12 +44,14 @@ class ConversationCaseImplTest {
                 new StubWorkspacePort(),
                 new NoopModelConfigPort(),
                 recordRepository,
-                toolApprovalRepository);
+                toolApprovalRepository,
+                org.mockito.Mockito.mock(cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort.class),
+                org.mockito.Mockito.mock(DiffSummaryAssembler.class));
         AgentConversation conversation = AgentConversation.builder()
                 .conversationId("conv_1")
                 .workspaceKey("repo-a")
                 .title("测试会话")
-                .defaultPermissionLevel(AgentPermissionLevel.L1_READ_ONLY)
+                .lastPermissionLevel(AgentPermissionLevel.READ_ONLY)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -76,7 +78,7 @@ class ConversationCaseImplTest {
                 .conversationId(conversationId)
                 .task("task")
                 .model("model")
-                .permissionLevel(AgentPermissionLevel.L1_READ_ONLY)
+                .permissionLevel(AgentPermissionLevel.READ_ONLY)
                 .status(AgentRunStatus.SUCCEEDED)
                 .createdAt(LocalDateTime.now())
                 .build();

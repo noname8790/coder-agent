@@ -2,7 +2,7 @@
 
 `coder-agent` 是一个 Java 服务端本地代码 Agent Harness。它通过 REST API 和 Tauri 客户端接收任务，在用户注册的本地 workspace 中读取仓库、搜索、修改文件、执行受限 PowerShell 命令、生成本地 commit/PR 草稿，并把运行过程持久化到 MySQL、pgvector 和 `{workspaceRoot}/.coder/`。
 
-当前 v4 目标是把项目从“能操作仓库的 coding agent”推进到“可治理、可记忆、可审计、可评测的 Agent Harness”，v4 版经过功能测试已实现Coding Agent基本功能。
+当前 v4.1 是在 v4 Harness 能力之上的产品化优化版本，重点包括权限等级重命名、审批治理收敛、Git/PR 专用工具、Markdown 消息展示、复制按钮和 Diff 摘要卡片。
 
 ## 模块
 
@@ -15,26 +15,51 @@
 - `coder-agent-app`：Spring Boot 启动模块。
 - `coder-agent-client`：Tauri + React 客户端。
 
-## v4 能力
+## v4.1 能力
 
-- 模型配置中心：用户通过 API/客户端保存 OpenAI-compatible Base URL、API Key、模型名、Endpoint Type、流式能力和上下文预算。v4 不再使用 v3 的固定三模型运行时白名单。
-- 流式输出：Agent 正文通过 `assistant_delta` 实时推送，不再保留 v3 非流式一次性返回主路径。
-- 长上下文治理：按 system、任务、权限、消息、记忆、文件摘要、原始片段、工具结果分层装配 prompt，并写入 context snapshot。
-- 结构化记忆：MySQL 保存记忆元数据，PostgreSQL + pgvector 保存向量 chunk，每个 workspace 独立召回。
-- 自动摘要：读取文件、搜索命中和运行结束时按预算生成文件/运行摘要并向量化。
-- 工具治理：工具 schema 校验、敏感路径拒绝、重复调用拦截、敏感信息脱敏。
-- 高风险审批：`overwrite_file`、`delete_file`、`git commit` 进入 `WAITING_APPROVAL`；批准后继续，拒绝后把结构化拒绝结果返回 Agent。
-- Eval MVP：支持 benchmark、按模型批量执行、汇总 pass_rate/model_calls/tool_calls/failure_category/context compression/memory hit，并写 `.coder/evals/{evalId}/` 报告。
+### 权限等级
+
+对外权限等级改为：
+
+- `READ_ONLY` / 只读：读取仓库、搜索、查看 Git 状态和生成分析结论，不修改本地文件。
+- `DEFAULT` / 默认：允许常规仓库任务；删除、覆盖、Git 写入、PR 草稿和本地 commit 等高风险动作需要审批。
+- `FULL_ACCESS` / 完全控制：解锁 workspace 内全部本地仓库操作，高风险动作不再请求审批，但仍保留 workspace 边界、受保护路径、危险命令拒绝、脱敏和审计。
+
+首次打开 conversation 默认使用 `DEFAULT`。之后系统按 conversation 持久化 `lastPermissionLevel`，再次打开该会话时恢复上次选择。
+
+### Git / PR 工具
+
+v4.1 增加专用 Git/PR 工具，避免由 `run_shell` 拼接 Git 命令导致超时或解析不稳定：
+
+- `git_status`
+- `git_diff`
+- `git_log`
+- `git_add`
+- `git_commit`
+- `generate_pr_draft`
+
+`generate_pr_draft` 只生成本地 `.coder/runs/{runId}/pull-request.md`，不会执行远程 push，也不会调用 GitHub/GitLab API。
+
+### Diff 摘要
+
+Agent 修改文件后会生成 `changed-files.json`，包含文件路径、变更类型和增删行统计。run/message 详情 API 会返回 Diff 摘要，客户端在 Agent 消息下方展示 Diff 卡片，默认显示前 3 个文件，可展开全部文件。
+
+### 客户端体验
+
+- 权限选择器为三档选项，包含图标、标题、描述、选中标记；`FULL_ACCESS` 使用黄色风险提示。
+- Agent 消息按 Markdown 安全渲染，不执行 raw HTML。
+- 用户消息和 Agent 消息下方提供复制图标，复制原始文本。
+- 有文件变更的 Agent 消息展示 Diff 摘要卡片。
 
 ## 数据库
 
-MySQL 初始化：
+MySQL 初始化脚本：
 
 ```text
 docs/dev-ops/mysql/sql/coder-agent.sql
 ```
 
-PostgreSQL/pgvector 初始化：
+PostgreSQL/pgvector 初始化脚本：
 
 ```text
 docs/dev-ops/postgresql/sql/coder-agent.sql
@@ -49,14 +74,14 @@ pgvector 保存向量 chunk 和检索元数据。
 本地 `.env` 不提交。推荐至少配置：
 
 ```dotenv
-MYSQL_URL=jdbc:mysql://127.0.0.1:13306<替换为你的MYSQL端口>/coder-agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-MYSQL_USERNAME=<你的MYSQL账户>
-MYSQL_PASSWORD=<你的MYSQL密码>
+MYSQL_URL=jdbc:mysql://127.0.0.1:13306/coder-agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+MYSQL_USERNAME=<你的 MySQL 账号>
+MYSQL_PASSWORD=<你的 MySQL 密码>
 
 PGVECTOR_ENABLED=true
-PGVECTOR_URL=jdbc:postgresql://127.0.0.1:15432<替换为你的postgreSQL端口>/coder-agent
-PGVECTOR_USERNAME=<你的postgreSQL账户>
-PGVECTOR_PASSWORD=<你的postgreSQL密码>
+PGVECTOR_URL=jdbc:postgresql://127.0.0.1:15432/coder-agent
+PGVECTOR_USERNAME=<你的 PostgreSQL 账号>
+PGVECTOR_PASSWORD=<你的 PostgreSQL 密码>
 PGVECTOR_SCHEMA=public
 PGVECTOR_TABLE_PREFIX=coder_agent
 PGVECTOR_VECTOR_DIMENSIONS=1024
@@ -65,8 +90,8 @@ PGVECTOR_SIMILARITY=cosine
 
 EMBEDDING_PROVIDER=openai-compatible
 EMBEDDING_BASE_URL=<Base URL>
-EMBEDDING_API_KEY=<你的API Key>
-EMBEDDING_MODEL=<模型 key>
+EMBEDDING_API_KEY=<你的 API Key>
+EMBEDDING_MODEL=<Embedding 模型key>
 EMBEDDING_ENDPOINT_TYPE=embeddings
 EMBEDDING_TIMEOUT_SECONDS=120
 
@@ -123,7 +148,7 @@ curl http://localhost:8080/api/model-providers?enabledOnly=true
 ```powershell
 curl -X POST http://localhost:8080/api/agent-runs `
   -H "Content-Type: application/json" `
-  -d '{ "workspaceKey":"agent-test-demo", "task":"阅读当前仓库并简要说明模块结构。", "model":"glm-5", "permissionLevel":"L1" }'
+  -d '{ "workspaceKey":"agent-test-demo", "task":"阅读当前仓库并简要说明模块结构。", "model":"glm-5", "permissionLevel":"DEFAULT" }'
 ```
 
 SSE：
@@ -146,31 +171,24 @@ curl -X POST http://localhost:8080/api/tool-approvals/{approvalId}/reject `
   -d '{ "reason":"不允许修改该文件" }'
 ```
 
-Eval：
-
-```powershell
-curl -X POST http://localhost:8080/api/evals/runs `
-  -H "Content-Type: application/json" `
-  -d '{ "workspaceKey":"agent-test-demo", "modelKeys":["glm-5"] }'
-```
-
 ## 验证
 
 ```powershell
-mvn -pl coder-agent-app -am test
+mvn test
 
 cd coder-agent-client
-npm test
+npm run test
 npm run build
 
 cd ..
-openspec validate enhance-agent-harness-v4
+openspec validate optimize-v4-agent-ux-and-git-ops --strict
 ```
 
 ## 回滚边界
 
-- `MEMORY_ENABLED=false` 可停用结构化记忆流程。
-- `PGVECTOR_ENABLED=false` 可停用 pgvector 向量召回，系统降级为无向量记忆。
-- `TOOL_APPROVAL_ENABLED=false` 可停用人工审批，仍保留基础工具治理。
-- `EVAL_ENABLED=false` 可停用 eval API 与报告生成。
-- v4 不保留静态三模型白名单和非流式一次性结果输出的兼容分支；如需恢复，只能通过代码回滚。
+- 可执行 `docs/dev-ops/mysql/sql/coder_agent_v4_1.sql` 中的回滚 SQL，将权限字段和值恢复到旧语义。
+- 如需关闭结构化记忆：`MEMORY_ENABLED=false`。
+- 如需关闭 pgvector 向量召回：`PGVECTOR_ENABLED=false`。
+- 如需关闭人工审批：`TOOL_APPROVAL_ENABLED=false`，但仍保留基础工具治理。
+- 如需关闭 eval：`EVAL_ENABLED=false`。
+- v4.1 不保留旧 L1/L2/L3 作为新写入 API/数据库值；旧值只在迁移和领域解析兼容中保留。

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -58,6 +59,11 @@ public class RunShellTool implements LocalTool {
 
         try {
             ResolvedCommand resolved = resolveCommand(workspace, rawCommand);
+            if (resolved.directoryOnly()) {
+                Path relative = workspace.rootPath().relativize(resolved.workingDirectory());
+                String output = "已切换工作目录? " + (relative.toString().isBlank() ? "." : relative);
+                return new ToolResult(CallStatus.SUCCESS, output, output, 0, null);
+            }
             String validationError = validateCommand(resolved.command());
             if (validationError != null) {
                 return rejected(validationError, validationCode(validationError));
@@ -68,13 +74,18 @@ public class RunShellTool implements LocalTool {
                     .directory(resolved.workingDirectory().toFile())
                     .redirectErrorStream(true)
                     .start();
+            CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readProcessSafely(process));
             boolean finished = process.waitFor(properties.getTools().getShellTimeoutSeconds(), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                return new ToolResult(CallStatus.FAILED, "命令超时: " + rawCommand, "", 124, "TIMEOUT");
+                process.waitFor(5, TimeUnit.SECONDS);
+                String output = awaitOutput(outputFuture);
+                String summary = "命令超时: " + rawCommand
+                        + (output.isBlank() ? "" : System.lineSeparator() + output);
+                return new ToolResult(CallStatus.FAILED, summary, output, 124, "TIMEOUT");
             }
 
-            String output = readProcess(process);
+            String output = awaitOutput(outputFuture);
             long latencyMs = System.currentTimeMillis() - start;
             int exitCode = process.exitValue();
             TestCommandReport report = testReport(rawCommand, exitCode, latencyMs, output);
@@ -92,14 +103,14 @@ public class RunShellTool implements LocalTool {
         Matcher combined = CD_AND_COMMAND.matcher(rawCommand);
         if (combined.matches()) {
             Path workingDirectory = resolveWorkingDirectory(workspace.rootPath(), combined.group(2));
-            return new ResolvedCommand(workingDirectory, combined.group(3).trim());
+            return new ResolvedCommand(workingDirectory, combined.group(3).trim(), false);
         }
         Matcher cdOnly = CD_ONLY.matcher(rawCommand);
         if (cdOnly.matches()) {
             Path workingDirectory = resolveWorkingDirectory(workspace.rootPath(), cdOnly.group(2));
-            return new ResolvedCommand(workingDirectory, "Get-Location");
+            return new ResolvedCommand(workingDirectory, "", true);
         }
-        return new ResolvedCommand(workspace.rootPath(), rawCommand);
+        return new ResolvedCommand(workspace.rootPath(), rawCommand, false);
     }
 
     private Path resolveWorkingDirectory(Path workspaceRoot, String requestedPath) throws Exception {
@@ -177,6 +188,22 @@ public class RunShellTool implements LocalTool {
         return output.toString();
     }
 
-    private record ResolvedCommand(Path workingDirectory, String command) {
+    private String readProcessSafely(Process process) {
+        try {
+            return readProcess(process);
+        } catch (Exception e) {
+            return "读取命令输出失败: " + e.getMessage();
+        }
+    }
+
+    private String awaitOutput(CompletableFuture<String> outputFuture) {
+        try {
+            return outputFuture.get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return "读取命令输出超时: " + e.getMessage();
+        }
+    }
+
+    private record ResolvedCommand(Path workingDirectory, String command, boolean directoryOnly) {
     }
 }

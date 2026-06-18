@@ -87,7 +87,7 @@ public class AgentRunRepository implements IAgentRunRepository {
         po.setConversationId(run.getConversationId());
         po.setTask(run.getTask());
         po.setModel(run.getModel());
-        po.setPermissionLevel(run.getPermissionLevel() == null ? "L1_READ_ONLY" : run.getPermissionLevel().name());
+        po.setPermissionLevel(run.getPermissionLevel() == null ? "DEFAULT" : run.getPermissionLevel().name());
         po.setStatus(run.getStatus() == null ? null : run.getStatus().name());
         po.setFinalAnswer(run.getFinalAnswer());
         po.setFailureReason(run.getFailureReason());

@@ -5,40 +5,42 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 第三版运行权限等级。它替代用户侧 capability 勾选，作为工具可见性和执行边界。
+ * 面向用户暴露的 Agent 权限等级。
  */
 public enum AgentPermissionLevel {
-    L1_READ_ONLY(
-            "只读分析",
-            "只能读取、搜索、查看 Git 状态并生成结论。",
-            List.of("读取文件", "搜索文本", "列出目录", "Git 只读命令"),
+    READ_ONLY(
+            "只读",
+            "读取仓库、搜索文本、查看 Git 状态并生成分析结论，不修改本地文件。",
+            List.of("读取文件", "搜索文本", "列出目录", "Git 只读命令", "生成分析结论"),
             List.of("新增文件", "修改文件", "覆盖文件", "删除文件", "运行测试/构建", "本地提交", "PR 草稿"),
             "低风险：不会修改本地仓库。",
-            Set.of("list_files", "read_file", "search_text", "run_shell")
+            "book-open",
+            false,
+            Set.of("list_files", "read_file", "search_text", "run_shell", "git_status", "git_diff", "git_log")
     ),
-    L2_SAFE_EDIT(
-            "安全编辑",
-            "允许新增文件、基于 search/replace 修改文本文件，并运行测试或构建。",
-            List.of("L1 全部能力", "新增文件", "安全修改文件", "运行测试", "运行构建"),
-            List.of("覆盖文件", "删除文件", "本地提交", "PR 草稿", "git push"),
-            "中风险：会修改工作区文件，但禁止删除、覆盖和提交。",
-            Set.of("list_files", "read_file", "search_text", "run_shell", "write_file", "apply_patch")
-    ),
-    L3_REPO_WRITE(
-            "仓库写入",
-            "允许覆盖/删除文件、本地分支、本地 add/commit，并生成 PR 草稿和回滚材料。",
-            List.of("L2 全部能力", "覆盖文件", "删除文件", "本地分支", "git add", "git commit", "PR 草稿"),
+    DEFAULT(
+            "默认",
+            "允许常规仓库任务；删除、覆盖、Git 写入、PR 草稿和本地提交等高风险动作需要审批。",
+            List.of("只读全部能力", "新增文件", "修改文件", "覆盖文件", "删除文件", "运行测试/构建", "Git 本地操作", "PR 草稿"),
             List.of("git push", "git clean", "git reset --hard", "远程 PR 创建"),
-            "高风险：会删除或覆盖文件，并可能创建本地提交；仍禁止远程推送和强清理。",
-            Set.of("list_files", "read_file", "search_text", "run_shell", "write_file", "apply_patch", "overwrite_file", "delete_file", "generate_pr_draft")
+            "中风险：可修改仓库；检测到高风险动作时会请求审批。",
+            "shield-check",
+            true,
+            Set.of("list_files", "read_file", "search_text", "run_shell", "write_file", "apply_patch",
+                    "overwrite_file", "delete_file", "generate_pr_draft", "git_status", "git_diff", "git_log",
+                    "git_add", "git_commit")
     ),
-    L4_DANGEROUS_LOCAL(
-            "高危本地操作",
-            "预留等级，第三版不默认开放。",
-            List.of("预留"),
-            List.of("第三版默认全部禁用"),
-            "高危预留：当前版本不应被普通运行使用。",
-            Set.of()
+    FULL_ACCESS(
+            "完全控制",
+            "解锁 workspace 内全部本地仓库操作，高风险动作不再请求审批。",
+            List.of("默认全部能力", "无需审批的删除/覆盖", "无需审批的 Git 写入", "无需审批的本地提交", "PR 草稿"),
+            List.of("workspace 外路径", "受保护路径", "危险命令", "远程 push/API"),
+            "高风险：不会为本地高风险操作请求审批，请确认你信任当前任务。",
+            "shield-alert",
+            true,
+            Set.of("list_files", "read_file", "search_text", "run_shell", "write_file", "apply_patch",
+                    "overwrite_file", "delete_file", "generate_pr_draft", "git_status", "git_diff", "git_log",
+                    "git_add", "git_commit")
     );
 
     private final String displayName;
@@ -46,6 +48,8 @@ public enum AgentPermissionLevel {
     private final List<String> allowedFeatures;
     private final List<String> forbiddenFeatures;
     private final String riskNotice;
+    private final String icon;
+    private final boolean dangerous;
     private final Set<String> advertisedTools;
 
     AgentPermissionLevel(String displayName,
@@ -53,12 +57,16 @@ public enum AgentPermissionLevel {
                          List<String> allowedFeatures,
                          List<String> forbiddenFeatures,
                          String riskNotice,
+                         String icon,
+                         boolean dangerous,
                          Set<String> advertisedTools) {
         this.displayName = displayName;
         this.description = description;
         this.allowedFeatures = allowedFeatures;
         this.forbiddenFeatures = forbiddenFeatures;
         this.riskNotice = riskNotice;
+        this.icon = icon;
+        this.dangerous = dangerous;
         this.advertisedTools = advertisedTools;
     }
 
@@ -82,6 +90,14 @@ public enum AgentPermissionLevel {
         return riskNotice;
     }
 
+    public String icon() {
+        return icon;
+    }
+
+    public boolean dangerous() {
+        return dangerous;
+    }
+
     public boolean canAdvertise(String toolName) {
         return advertisedTools.contains(toolName);
     }
@@ -90,10 +106,19 @@ public enum AgentPermissionLevel {
         return ordinal() >= other.ordinal();
     }
 
+    public boolean requiresApprovalForHighRiskTool() {
+        return this == DEFAULT;
+    }
+
+    public boolean bypassesApproval() {
+        return this == FULL_ACCESS;
+    }
+
     public static AgentPermissionLevel parse(String value) {
         if (value == null || value.isBlank()) {
-            return L1_READ_ONLY;
+            return DEFAULT;
         }
-        return AgentPermissionLevel.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return AgentPermissionLevel.valueOf(normalized);
     }
 }

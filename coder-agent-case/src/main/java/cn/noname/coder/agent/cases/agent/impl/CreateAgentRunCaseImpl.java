@@ -146,10 +146,10 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
             if (StringUtils.hasText(request.permissionLevel())) {
                 return AgentPermissionLevel.parse(request.permissionLevel());
             }
-            if (conversation != null && conversation.getDefaultPermissionLevel() != null) {
-                return conversation.getDefaultPermissionLevel();
+            if (conversation != null && conversation.getLastPermissionLevel() != null) {
+                return conversation.getLastPermissionLevel();
             }
-            return AgentPermissionLevel.L1_READ_ONLY;
+            return AgentPermissionLevel.DEFAULT;
         } catch (Exception e) {
             throw new AppException("INVALID_PERMISSION_LEVEL", "未知权限等级：" + request.permissionLevel());
         }
@@ -207,22 +207,23 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                         .build());
             }
             conversation.setUpdatedAt(LocalDateTime.now());
+            conversation.setLastPermissionLevel(permissionLevel);
             conversationRepository.updateConversation(conversation);
         }
-        if (permissionLevel == AgentPermissionLevel.L3_REPO_WRITE) {
+        if (permissionLevel != AgentPermissionLevel.READ_ONLY) {
             conversationRepository.savePermissionAudit(PermissionAudit.builder()
                     .runId(run.getRunId())
                     .conversationId(run.getConversationId())
                     .workspaceKey(run.getWorkspaceKey())
                     .permissionLevel(permissionLevel)
                     .action("PERMISSION_LEVEL_SELECTED")
-                    .detail("用户选择仓库写入权限")
+                    .detail("用户选择权限等级：" + permissionLevel.displayName())
                     .createdAt(LocalDateTime.now())
                     .build());
             recordRepository.saveAuditEvent(AuditEvent.builder()
                     .runId(run.getRunId())
                     .eventType(AuditEventType.PERMISSION_LEVEL_SELECTED)
-                    .message("用户选择仓库写入权限")
+                    .message("用户选择权限等级：" + permissionLevel.displayName())
                     .detail(permissionLevel.name())
                     .createdAt(LocalDateTime.now())
                     .build());

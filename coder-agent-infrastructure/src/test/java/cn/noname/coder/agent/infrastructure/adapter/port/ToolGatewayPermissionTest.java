@@ -25,10 +25,10 @@ class ToolGatewayPermissionTest {
     Path workspaceRoot;
 
     @Test
-    void shouldRejectEditingToolGivenL1Permission() {
-        // Given L1 运行但请求编辑工具
+    void shouldRejectEditingToolGivenReadOnlyPermission() {
+        // Given READ_ONLY 运行但请求编辑工具
         ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")), noopGovernance());
-        AgentRun run = run(AgentPermissionLevel.L1_READ_ONLY);
+        AgentRun run = run(AgentPermissionLevel.READ_ONLY);
 
         // When 调用 apply_patch / Then 被拒绝
         ToolResult result = gateway.execute(run, workspace(), new ToolInvocation("1", "apply_patch", "{}"));
@@ -37,23 +37,23 @@ class ToolGatewayPermissionTest {
     }
 
     @Test
-    void shouldAllowEditingToolGivenL2Permission() {
-        // Given L2 运行
+    void shouldAllowEditingToolGivenDefaultPermission() {
+        // Given DEFAULT 运行
         ToolGateway gateway = new ToolGateway(List.of(successTool("apply_patch")), noopGovernance());
 
         // When 调用 apply_patch / Then 由权限等级放行
-        ToolResult result = gateway.execute(run(AgentPermissionLevel.L2_SAFE_EDIT), workspace(),
+        ToolResult result = gateway.execute(run(AgentPermissionLevel.DEFAULT), workspace(),
                 new ToolInvocation("1", "apply_patch", "{}"));
         assertEquals(CallStatus.SUCCESS, result.status());
     }
 
     @Test
     void shouldFilterDefinitionsByPermissionLevel() {
-        // Given L1 运行
+        // Given READ_ONLY 运行
         ToolGateway gateway = new ToolGateway(List.of(successTool("list_files"), successTool("apply_patch"), successTool("write_file")), noopGovernance());
 
         // When 获取工具定义
-        List<String> names = gateway.definitions(run(AgentPermissionLevel.L1_READ_ONLY), workspace())
+        List<String> names = gateway.definitions(run(AgentPermissionLevel.READ_ONLY), workspace())
                 .stream().map(ToolDefinition::name).toList();
 
         // Then 编辑工具不可见
@@ -63,22 +63,22 @@ class ToolGatewayPermissionTest {
     }
 
     @Test
-    void shouldRejectShellCommandGivenL1Permission() {
-        // Given L1 权限
+    void shouldRejectShellCommandGivenReadOnlyPermission() {
+        // Given READ_ONLY 权限
         ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
 
         // When 执行测试命令 / Then 被拒绝
-        ToolResult result = gateway.execute(run(AgentPermissionLevel.L1_READ_ONLY), workspace(),
+        ToolResult result = gateway.execute(run(AgentPermissionLevel.READ_ONLY), workspace(),
                 new ToolInvocation("1", "run_shell", "{\"command\":\"mvn test\"}"));
         assertEquals(CallStatus.REJECTED, result.status());
         assertEquals("PERMISSION_REJECTED", result.errorMessage());
     }
 
     @Test
-    void shouldAllowL3GitWriteAndRejectPush() {
-        // Given L3 权限
+    void shouldAllowDefaultGitWriteAndRejectPush() {
+        // Given DEFAULT 权限
         ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
-        AgentRun run = run(AgentPermissionLevel.L3_REPO_WRITE);
+        AgentRun run = run(AgentPermissionLevel.DEFAULT);
 
         // When 执行本地 commit / Then 允许；执行 push / Then 拒绝
         assertEquals(CallStatus.SUCCESS, gateway.execute(run, workspace(),

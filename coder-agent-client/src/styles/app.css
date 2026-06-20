@@ -366,6 +366,33 @@ h1 {
   padding: 18px;
 }
 
+.message-block {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.message-block.user {
+  justify-items: end;
+}
+
+.message-block.agent {
+  justify-items: start;
+}
+
+.message-content-stack {
+  display: grid;
+  gap: 5px;
+  width: fit-content;
+  max-width: 82%;
+  min-width: 0;
+}
+
+.message-content-stack > .message {
+  width: auto;
+  max-width: none;
+}
+
 .message {
   position: relative;
   display: grid;
@@ -1114,7 +1141,7 @@ h1 {
 
 .diff-card-head {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
   padding: 12px 14px 8px;
@@ -1264,4 +1291,106 @@ h1 {
   color: #3f4b55;
   background: #f3f7fa;
   font-size: 13px;
+}
+
+.diff-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  color: #33414c;
+  background: #f3f7fa;
+  font-size: 13px;
+}
+
+.diff-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.irreversible-file {
+  color: #c81e1e;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-model-outside {
+  justify-self: stretch;
+  margin: 2px 0 0;
+  padding-right: 12px;
+  text-align: right;
+  color: #7b8792;
+  font-size: 12px;
+}
+
+.checkpoint-divider {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 6px 0 2px;
+  color: #7b8792;
+  font-size: 13px;
+}
+
+.checkpoint-divider.page-wide {
+  justify-self: stretch;
+  width: 100%;
+  max-width: none;
+}
+
+.checkpoint-divider > span {
+  height: 1px;
+  background: #e4ebf1;
+}
+
+.checkpoint-divider button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #7b8792;
+  background: transparent;
+  font-size: 13px;
+}
+
+.checkpoint-divider button:hover {
+  color: #344552;
+}
+
+.agent-message-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 8px 0 2px;
+  color: #7b8792;
+  font-size: 12px;
+}
+
+.agent-message-tools button,
+.rolled-back-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  color: #4a5965;
+  background: #f3f7fa;
+  font-size: 12px;
+}
+
+.rolled-back-toggle {
+  justify-self: center;
+  margin: 4px auto 8px;
+}
+
+.rolled-back-toggle.inline {
+  margin: 3px auto 8px;
+}
+
+.message.rolled-back {
+  opacity: 0.72;
+  border-style: dashed;
 }

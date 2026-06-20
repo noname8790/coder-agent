@@ -10,6 +10,7 @@ import {
   Pencil,
   FileDiff,
   Folder,
+  GitBranch,
   History,
   Loader2,
   MessageSquarePlus,
@@ -113,9 +114,8 @@ function terminalLine(status: string, reason?: string) {
   }
   return "";
 }
-
 function terminalParts(content: string, terminal?: string) {
-  const markers = ["\n\n???", "\n\n?????", "\n\n?????"];
+  const markers = ["\n\n???", "\n\n?????", "\n\n????:"];
   const matchedMarker = markers.find((marker) => content.includes(marker));
   let body = content;
   let terminalText = terminal || "";
@@ -283,7 +283,17 @@ function patchLines(snippet?: string) {
     });
 }
 
-function DiffSummaryCard({ diff }: { diff?: ConversationMessage["diffSummary"] }) {
+function DiffSummaryCard({
+  diff,
+  runId,
+  onRevert,
+  onRestore
+}: {
+  diff?: ConversationMessage["diffSummary"];
+  runId?: string;
+  onRevert?: (runId: string) => void;
+  onRestore?: (runId: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [openFiles, setOpenFiles] = useState<Set<string>>(() => new Set());
   if (!diff || !diff.files || diff.files.length === 0) {
@@ -313,6 +323,17 @@ function DiffSummaryCard({ diff }: { diff?: ConversationMessage["diffSummary"] }
             <span className="diff-deleted">-{diff.totalDeletedLines}</span>
           </span>
         </div>
+        {runId && diff.changeSetStatus ? (
+          <button
+            className="diff-action"
+            onClick={() => (diff.changeSetStatus === "REVERTED" ? onRestore?.(runId) : onRevert?.(runId))}
+            disabled={!diff.reversible}
+            title={diff.reversible ? "" : "存在无法自动撤销的文件"}
+          >
+            <RefreshCcw size={14} />
+            {diff.changeSetStatus === "REVERTED" ? "还原更改" : "撤销更改"}
+          </button>
+        ) : null}
       </div>
       <div className="diff-files">
         {visibleFiles.map((file, index) => {
@@ -329,6 +350,9 @@ function DiffSummaryCard({ diff }: { diff?: ConversationMessage["diffSummary"] }
                   <ChevronDown className={isOpen ? "open" : ""} size={15} />
                 </button>
               </div>
+              {file.reversible === false ? (
+                <div className="irreversible-file">该文件无法自动撤销{file.irreversibleReason ? `：${file.irreversibleReason}` : ""}</div>
+              ) : null}
               {isOpen && lines.length > 0 ? (
                 <div className="diff-patch">
                   {lines.map((line) => (
@@ -397,6 +421,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState("");
+  const [showRolledBackMessages, setShowRolledBackMessages] = useState(false);
   const conversationSurfaceRef = useRef<HTMLElement | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
   const backendStarting = useRef(false);
@@ -423,9 +448,30 @@ export function App() {
   const displayMessages = useMemo(() => {
     const selectedTransientMessages = transientMessages.filter((message) => message.conversationId === selectedConversation);
     const transientKeys = new Set(selectedTransientMessages.map((message) => `${message.runId || ""}:${message.role}`));
-    const stableMessages = messages.filter((message) => !transientKeys.has(`${message.runId || ""}:${message.role}`));
+    const stableMessages = messages
+      .filter((message) => showRolledBackMessages || message.visibilityStatus !== "ROLLED_BACK")
+      .filter((message) => !transientKeys.has(`${message.runId || ""}:${message.role}`));
     return [...stableMessages, ...selectedTransientMessages];
-  }, [messages, selectedConversation, transientMessages]);
+  }, [messages, selectedConversation, showRolledBackMessages, transientMessages]);
+  const rolledBackSegments = useMemo(() => {
+    const segments = new Map<string, ConversationMessage[]>();
+    let checkpointMessageId = "__conversation_start__";
+    for (const message of messages) {
+      if (message.visibilityStatus === "ROLLED_BACK") {
+        const current = segments.get(checkpointMessageId) || [];
+        current.push(message);
+        segments.set(checkpointMessageId, current);
+      } else {
+        checkpointMessageId = message.messageId;
+      }
+    }
+    return segments;
+  }, [messages]);
+  const latestVisibleMessageId = useMemo(() => {
+    return [...displayMessages]
+      .reverse()
+      .find((message) => !message.transient && message.visibilityStatus !== "ROLLED_BACK")?.messageId || "";
+  }, [displayMessages]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -445,8 +491,9 @@ export function App() {
     if (conversation.lastPermissionLevel && permissionLevels.some((item) => item.code === conversation.lastPermissionLevel)) {
       setPermissionLevel(conversation.lastPermissionLevel);
     }
-    if (conversation.defaultModel && modelProviders.some((item) => item.modelKey === conversation.defaultModel)) {
-      setModel(conversation.defaultModel);
+    const conversationModel = conversation.lastModelKey || conversation.defaultModel;
+    if (conversationModel && modelProviders.some((item) => item.modelKey === conversationModel)) {
+      setModel(conversationModel);
     }
     appliedConversationDefaultsRef.current = selectedConversation;
   }, [conversations, modelProviders, permissionLevels, selectedConversation]);
@@ -516,10 +563,17 @@ export function App() {
       return;
     }
     const conversationId = selectedConversation;
-    const data = await api.listMessages(conversationId);
-    const visibleData = data.filter((message) => !isStatusOnlyAgentMessage(message));
-    setMessages(visibleData);
-    setLoadedConversationId(conversationId);
+    try {
+      const data = await api.listMessages(conversationId);
+      const visibleData = data.filter((message) => !isStatusOnlyAgentMessage(message));
+      setMessages(visibleData);
+      setShowRolledBackMessages(false);
+    } catch (error) {
+      setMessages([]);
+      setNotice(error instanceof Error ? error.message : "加载对话失败");
+    } finally {
+      setLoadedConversationId(conversationId);
+    }
   }, [api, connection, selectedConversation]);
 
   const restoreRunDraft = useCallback(
@@ -627,7 +681,7 @@ export function App() {
       }, 1200);
       setNotice("???????");
     } catch {
-      setNotice("?????????????");
+      setNotice("????????????");
     }
   }, []);
 
@@ -964,6 +1018,58 @@ export function App() {
       setNotice("对话已删除");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "删除对话失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revertRun(runId: string) {
+    setBusy(true);
+    try {
+      await api.revertRun(runId);
+      await refreshMessages();
+      if (activeRunId === runId) {
+        await refreshRun();
+      }
+      setNotice("已撤销本次任务改动");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "撤销更改失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreRun(runId: string) {
+    setBusy(true);
+    try {
+      await api.restoreRun(runId);
+      await refreshMessages();
+      if (activeRunId === runId) {
+        await refreshRun();
+      }
+      setNotice("已还原本次任务改动");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "还原更改失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rollbackCheckpoint(message: ConversationMessage) {
+    if (!selectedConversation || !message.messageId) {
+      return;
+    }
+    if (!window.confirm("还原到此检查点会回滚该消息之后的代码改动，并折叠后续历史消息。确定继续吗？")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.rollbackCheckpoint(selectedConversation, message.messageId);
+      await refreshMessages();
+      await refreshConversations();
+      setNotice("已还原到该检查点");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "还原检查点失败");
     } finally {
       setBusy(false);
     }
@@ -1457,69 +1563,110 @@ function terminalForMessage(message: ConversationMessage) {
             </div>
           ) : (
             <div className="messages">
-              {displayMessages.map((message) => (
-                <article className={`message ${message.role.toLowerCase()}`} key={message.messageId}>
-                  {!message.transient && (
-                    <div className={`message-actions side ${message.role === "USER" ? "left" : "right"}`}>
-                      {message.role === "USER" && (
-                        <button
-                          title="修改消息并重新运行"
-                          onClick={() => {
-                            setEditingMessageId(message.messageId);
-                            setEditingContent(message.content);
-                          }}
-                        >
-                          <Pencil size={14} />
-                        </button>
+              {displayMessages.map((message) => {
+                const rolledBackSegment = rolledBackSegments.get(message.messageId) || [];
+                const showCheckpoint =
+                  message.role === "AGENT" &&
+                  !message.transient &&
+                  message.visibilityStatus !== "ROLLED_BACK" &&
+                  message.messageId !== latestVisibleMessageId &&
+                  !!message.status &&
+                  isTerminalRunStatus(message.status);
+                return (
+                  <div className={`message-block ${message.role.toLowerCase()}`} key={message.messageId}>
+                    <div className="message-content-stack">
+                    <article className={`message ${message.role.toLowerCase()} ${message.visibilityStatus === "ROLLED_BACK" ? "rolled-back" : ""}`}>
+                      {!message.transient && (
+                        <div className={`message-actions side ${message.role === "USER" ? "left" : "right"}`}>
+                          {message.role === "USER" && (
+                            <button
+                              title="修改消息并重新运行"
+                              onClick={() => {
+                                setEditingMessageId(message.messageId);
+                                setEditingContent(message.content);
+                              }}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          <button title="删除消息" onClick={() => void deleteMessage(message)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       )}
-                      <button title="删除消息" onClick={() => void deleteMessage(message)}>
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="message-head">
+                        <div className="message-role">
+                          {message.role === "USER" ? "你" : "Agent"}
+                          {message.status ? <span>{statusLabel(message.status)}</span> : null}
+                        </div>
+                      </div>
+                      {message.progress ? <div className="message-progress">{message.progress}</div> : null}
+                      {editingMessageId === message.messageId ? (
+                        <div className="message-editor">
+                          <textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} />
+                          <div>
+                            <button onClick={() => void saveEditedMessage(message)} disabled={busy || !editingContent.trim()}>
+                              <Send size={14} />
+                              保存并重跑
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingMessageId("");
+                                setEditingContent("");
+                              }}
+                            >
+                              <X size={14} />
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <MarkdownMessage content={message.content} terminal={terminalForMessage(message)} />
+                          <div className="message-footer">
+                            <button
+                              className={copiedMessageId === message.messageId ? "copied" : ""}
+                              title={copiedMessageId === message.messageId ? "已复制" : "复制"}
+                              onClick={() => void copyMessageContent(message.messageId, message.content)}
+                            >
+                              {copiedMessageId === message.messageId ? <Check size={14} /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                    {message.role === "AGENT" ? (
+                      <>
+                        {message.modelDisplayName ? <div className="agent-model-outside">{message.modelDisplayName}</div> : null}
+                        {rolledBackSegment.length > 0 ? (
+                          <button className="rolled-back-toggle inline" onClick={() => setShowRolledBackMessages((value) => !value)}>
+                            {showRolledBackMessages
+                              ? "收起已回滚历史"
+                              : `已回滚的 ${rolledBackSegment.length} 条历史消息，仅用于审计`}
+                          </button>
+                        ) : null}
+                        <DiffSummaryCard
+                          diff={message.diffSummary}
+                          runId={message.runId}
+                          onRevert={(runId) => void revertRun(runId)}
+                          onRestore={(runId) => void restoreRun(runId)}
+                        />
+                      </>
+                    ) : null}
                     </div>
-                  )}
-                  <div className="message-head">
-                    <div className="message-role">
-                      {message.role === "USER" ? "你" : "Agent"}
-                      {message.status ? <span>{statusLabel(message.status)}</span> : null}
-                    </div>
+                    {showCheckpoint ? (
+                      <div className="checkpoint-divider page-wide">
+                        <span />
+                        <button onClick={() => void rollbackCheckpoint(message)} disabled={busy || !message.runId}>
+                          还原检查点
+                          <GitBranch size={14} />
+                        </button>
+                        <span />
+                      </div>
+                    ) : null}
                   </div>
-                  {message.progress ? <div className="message-progress">{message.progress}</div> : null}
-                  {editingMessageId === message.messageId ? (
-                    <div className="message-editor">
-                      <textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} />
-                      <div>
-                        <button onClick={() => void saveEditedMessage(message)} disabled={busy || !editingContent.trim()}>
-                          <Send size={14} />
-                          保存并重跑
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditingMessageId("");
-                            setEditingContent("");
-                          }}
-                        >
-                          <X size={14} />
-                          取消
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <MarkdownMessage content={message.content} terminal={terminalForMessage(message)} />
-                      <div className="message-footer">
-                        <button
-                          className={copiedMessageId === message.messageId ? "copied" : ""}
-                          title={copiedMessageId === message.messageId ? "已复制" : "复制"}
-                          onClick={() => void copyMessageContent(message.messageId, message.content)}
-                        >
-                          {copiedMessageId === message.messageId ? <Check size={14} /> : <Copy size={14} />}
-                        </button>
-                      </div>
-                      {message.role === "AGENT" ? <DiffSummaryCard diff={message.diffSummary} /> : null}
-                    </>
-                  )}
-                </article>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

@@ -4,6 +4,11 @@
 
 当前 v4.1 是在 v4 Harness 能力之上的产品化优化版本，重点包括权限等级重命名、审批治理收敛、Git/PR 专用工具、Markdown 消息展示、复制按钮和 Diff 摘要卡片。
 
+v4.2 在 v4.1 的 Diff、Git/PR、Markdown 消息基础上补齐“可回退工作流”，并进行部分git治理：
+- Agent 消息的模型展示名跟随消息框右下角展示；checkpoint 入口居中于整个对话页，只出现在非最新、非回滚的终态 Agent 消息下。
+- 注册或重新激活 workspace 时会确保 `.gitignore` 包含 `.coder/`，避免 `.coder/runs` 等运行工件被 `git add .` 带入提交。
+- `git reset`、`git rm`、`git clean`、`git restore` 属于本地 Git 高风险操作：默认权限下需要用户审批，完全控制权限下直接放行；`git push` 仍不在当前版本开放范围内。
+
 ## 模块
 
 - `coder-agent-types`：通用配置、枚举、异常和响应。
@@ -191,4 +196,3 @@ openspec validate optimize-v4-agent-ux-and-git-ops --strict
 - 如需关闭 pgvector 向量召回：`PGVECTOR_ENABLED=false`。
 - 如需关闭人工审批：`TOOL_APPROVAL_ENABLED=false`，但仍保留基础工具治理。
 - 如需关闭 eval：`EVAL_ENABLED=false`。
-- v4.1 不保留旧 L1/L2/L3 作为新写入 API/数据库值；旧值只在迁移和领域解析兼容中保留。

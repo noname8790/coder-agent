@@ -7,10 +7,12 @@ import type {
   ConversationMessage,
   CreateRunPayload,
   CreateRunResponse,
+  CheckpointRollbackResponse,
   ModelProvider,
   ModelProviderList,
   ModelProviderPayload,
   PermissionLevel,
+  RunChangeActionResponse,
   ToolApprovalList,
   TraceQueryResponse,
   Workspace,
@@ -86,6 +88,12 @@ export function createApi(baseUrl: string) {
         `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
         { method: "DELETE" }
       ),
+    rollbackCheckpoint: (conversationId: string, messageId: string) =>
+      request<CheckpointRollbackResponse>(
+        baseUrl,
+        `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/checkpoint/rollback`,
+        { method: "POST" }
+      ),
     listPermissionLevels: () => request<PermissionLevel[]>(baseUrl, "/api/permission-levels"),
     listModelProviders: (enabledOnly = true) =>
       request<ModelProviderList>(baseUrl, `/api/model-providers?enabledOnly=${enabledOnly}`),
@@ -111,6 +119,10 @@ export function createApi(baseUrl: string) {
         body: JSON.stringify(payload)
       }),
     getRun: (runId: string) => request<AgentRun>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}`),
+    revertRun: (runId: string) =>
+      request<RunChangeActionResponse>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/revert`, { method: "POST" }),
+    restoreRun: (runId: string) =>
+      request<RunChangeActionResponse>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/restore`, { method: "POST" }),
     getRunDraft: (runId: string) =>
       request<AgentRunDraft>(baseUrl, `/api/agent-runs/${encodeURIComponent(runId)}/draft`),
     getTrace: (runId: string) =>

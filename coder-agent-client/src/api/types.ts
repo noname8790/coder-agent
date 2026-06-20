@@ -22,6 +22,7 @@ export type Conversation = {
   workspaceKey: string;
   title: string;
   defaultModel?: string;
+  lastModelKey?: string;
   lastPermissionLevel: string;
   createdAt?: string;
   updatedAt?: string;
@@ -32,6 +33,9 @@ export type DiffFile = {
   changeType: string;
   addedLines: number;
   deletedLines: number;
+  patchSnippet?: string;
+  reversible?: boolean;
+  irreversibleReason?: string;
 };
 
 export type DiffSummary = {
@@ -39,6 +43,8 @@ export type DiffSummary = {
   totalAddedLines: number;
   totalDeletedLines: number;
   files: DiffFile[];
+  changeSetStatus?: string;
+  reversible?: boolean;
 };
 
 export type ConversationMessage = {
@@ -53,6 +59,10 @@ export type ConversationMessage = {
   transient?: boolean;
   createdAt?: string;
   diffSummary?: DiffSummary;
+  sequenceNo?: number;
+  visibilityStatus?: string;
+  rolledBackByCheckpointId?: string;
+  modelDisplayName?: string;
 };
 
 export type PermissionLevel = {
@@ -193,6 +203,23 @@ export type CreateRunResponse = {
   runId: string;
   status: string;
   createdAt?: string;
+};
+
+export type RunChangeActionResponse = {
+  runId: string;
+  status: string;
+  changedFiles: number;
+  message?: string;
+};
+
+export type CheckpointRollbackResponse = {
+  checkpointId: string;
+  conversationId: string;
+  messageId: string;
+  status: string;
+  revertedRunIds: string[];
+  rolledBackMessageCount: number;
+  message?: string;
 };
 
 export type TraceQueryResponse = {

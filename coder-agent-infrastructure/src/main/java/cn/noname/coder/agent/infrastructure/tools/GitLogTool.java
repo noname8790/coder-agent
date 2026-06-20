@@ -22,7 +22,7 @@ public class GitLogTool implements LocalTool {
     public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
         int limit = Math.max(1, Math.min(20, ToolJson.integer(ToolJson.parse(argumentsJson), "limit", 5)));
         try {
-            var result = GitToolSupport.git(workspace, Duration.ofSeconds(20), "log", "--oneline", "-n", String.valueOf(limit));
+            var result = GitToolSupport.git(workspace, Duration.ofSeconds(120), "log", "--oneline", "-n", String.valueOf(limit));
             return new ToolResult(result.status(), result.output(), result.output(), result.exitCode(), result.errorMessage());
         } catch (Exception e) {
             return new ToolResult(CallStatus.FAILED, "git_log 执行失败: " + e.getMessage(), "", 1, e.getMessage());

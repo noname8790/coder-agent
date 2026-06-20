@@ -2,6 +2,7 @@ package cn.noname.coder.agent.cases.agent.impl;
 
 import cn.noname.coder.agent.cases.agent.AgentContextAssembler;
 import cn.noname.coder.agent.cases.context.ContextBudgetResolver;
+import cn.noname.coder.agent.cases.agent.RunChangeService;
 import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
@@ -90,6 +91,7 @@ public class AgentRunExecutor {
     private final ContextBudgetResolver contextBudgetResolver;
     private final MemoryService memoryService;
     private final AgentRunDraftService draftService;
+    private final RunChangeService runChangeService;
     private final AgentRuntimeProperties properties;
 
     private final AgentRunDomainService domainService = new AgentRunDomainService();
@@ -148,7 +150,7 @@ public class AgentRunExecutor {
                 }
                 candidates.addAll(rejectedApprovalCandidates(run));
                 candidates.addAll(approvedApprovalCandidates(run));
-                candidates.addAll(memoryService.recallForRun(run));
+                candidates.addAll(memoryService.recallForRun(run, inactiveContextRunIds(run)));
                 candidates.addAll(dynamicCandidates);
 
                 ContextAssemblyResult context = assembleContext(run, candidates);
@@ -756,8 +758,15 @@ public class AgentRunExecutor {
                 || "git_commit".equals(invocation.name())) {
             return true;
         }
-        return "run_shell".equals(invocation.name())
-                && commandFromJson(invocation.argumentsJson()).toLowerCase().startsWith("git commit");
+        if (!"run_shell".equals(invocation.name())) {
+            return false;
+        }
+        String command = commandFromJson(invocation.argumentsJson()).toLowerCase();
+        return command.startsWith("git commit")
+                || command.startsWith("git reset")
+                || command.startsWith("git rm")
+                || command.startsWith("git clean")
+                || command.startsWith("git restore");
     }
 
     private String riskSummary(ToolInvocation invocation) {
@@ -792,6 +801,7 @@ public class AgentRunExecutor {
         }
         List<AgentMessage> messages = conversationRepository.listMessages(run.getConversationId()).stream()
                 .filter(message -> !run.getRunId().equals(message.getRunId()))
+                .filter(message -> !"ROLLED_BACK".equals(message.getVisibilityStatus()))
                 .filter(message -> StringUtils.hasText(message.getContent()))
                 .toList();
         if (messages.isEmpty()) {
@@ -810,6 +820,21 @@ public class AgentRunExecutor {
             usedChars += nextChars;
         }
         return contextAssembler.recentMessagesCandidate(run, selected);
+    }
+
+    private List<String> inactiveContextRunIds(AgentRun run) {
+        if (run.getConversationId() == null || run.getConversationId().isBlank()) {
+            return List.of();
+        }
+        Set<String> runIds = new HashSet<>(runChangeService.revertedRunIds(run.getConversationId()));
+        conversationRepository.listMessages(run.getConversationId())
+                .stream()
+                .filter(message -> "ROLLED_BACK".equals(message.getVisibilityStatus()))
+                .map(AgentMessage::getRunId)
+                .filter(StringUtils::hasText)
+                .forEach(runIds::add);
+        runIds.remove(run.getRunId());
+        return new ArrayList<>(runIds);
     }
 
     private ContextAssemblyResult assembleContext(AgentRun run, List<ContextCandidate> candidates) {
@@ -1015,6 +1040,7 @@ public class AgentRunExecutor {
     }
 
     private void writeFinal(WorkspaceDescriptor workspace, AgentRun run, RunEditState editState) {
+        runChangeService.record(workspace, run, editState.changedFiles);
         List<RunArtifact> reviewArtifacts = artifactPort.writeReviewArtifacts(workspace, run, editState.changedFiles, editState.testReports);
         reviewArtifacts.forEach(recordRepository::saveArtifact);
         reviewArtifacts.stream()

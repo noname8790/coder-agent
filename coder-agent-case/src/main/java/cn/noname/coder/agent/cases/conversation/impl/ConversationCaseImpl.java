@@ -14,10 +14,13 @@ import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationR
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
+import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +50,8 @@ public class ConversationCaseImpl implements IConversationCase {
     private final IModelConfigPort modelConfigPort;
     private final IAgentRecordRepository recordRepository;
     private final IToolApprovalRepository toolApprovalRepository;
+    private final IRunChangeRepository runChangeRepository;
+    private final IModelProviderRepository modelProviderRepository;
     private final IArtifactPort artifactPort;
     private final DiffSummaryAssembler diffSummaryAssembler;
 
@@ -57,7 +62,7 @@ public class ConversationCaseImpl implements IConversationCase {
         }
         workspacePort.resolve(request.workspaceKey())
                 .orElseThrow(() -> new AppException("WORKSPACE_NOT_FOUND", "workspaceKey 未配置：" + request.workspaceKey()));
-        String model = StringUtils.hasText(request.defaultModel()) ? request.defaultModel() : null;
+        String model = StringUtils.hasText(request.defaultModel()) ? request.defaultModel() : firstEnabledModelKey();
         if (StringUtils.hasText(model) && modelConfigPort.resolve(model).isEmpty()) {
             throw new AppException("MODEL_NOT_CONFIGURED", "模型未配置：" + model);
         }
@@ -68,6 +73,7 @@ public class ConversationCaseImpl implements IConversationCase {
                 .workspaceKey(request.workspaceKey())
                 .title(StringUtils.hasText(request.title()) ? request.title() : "新对话")
                 .defaultModel(model)
+                .lastModelKey(model)
                 .lastPermissionLevel(permissionLevel)
                 .createdAt(now)
                 .updatedAt(now)
@@ -155,6 +161,7 @@ public class ConversationCaseImpl implements IConversationCase {
             return;
         }
         contextSnapshotRepository.deleteByRunIds(runIds);
+        runChangeRepository.deleteByRunIds(runIds);
         memoryService.deleteRunMemories(workspaceKey, runIds);
         toolApprovalRepository.deleteByRunIds(runIds);
         recordRepository.deleteByRunIds(runIds);
@@ -204,6 +211,7 @@ public class ConversationCaseImpl implements IConversationCase {
                 conversation.getWorkspaceKey(),
                 conversation.getTitle(),
                 conversation.getDefaultModel(),
+                conversation.getLastModelKey(),
                 conversation.getLastPermissionLevel() == null ? AgentPermissionLevel.DEFAULT.name() : conversation.getLastPermissionLevel().name(),
                 conversation.getCreatedAt(),
                 conversation.getUpdatedAt()
@@ -224,7 +232,28 @@ public class ConversationCaseImpl implements IConversationCase {
                 run == null || run.getStatus() == null ? null : run.getStatus().name(),
                 run == null ? null : run.getFailureReason(),
                 message.getCreatedAt(),
-                diffSummaryAssembler.load(artifactPort, workspace, message.getRunId())
+                diffSummaryAssembler.load(artifactPort, workspace, message.getRunId()),
+                message.getSequenceNo(),
+                message.getVisibilityStatus(),
+                message.getRolledBackByCheckpointId(),
+                modelDisplayName(run)
         );
+    }
+
+    private String firstEnabledModelKey() {
+        return modelProviderRepository.listEnabled().stream()
+                .findFirst()
+                .map(ModelProvider::getModelKey)
+                .orElse(null);
+    }
+
+    private String modelDisplayName(AgentRun run) {
+        if (run == null || !StringUtils.hasText(run.getModel())) {
+            return null;
+        }
+        return modelProviderRepository.findByModelKey(run.getModel())
+                .map(ModelProvider::getDisplayName)
+                .filter(StringUtils::hasText)
+                .orElse(run.getModel());
     }
 }

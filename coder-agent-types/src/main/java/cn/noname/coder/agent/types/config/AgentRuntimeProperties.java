@@ -85,6 +85,11 @@ public class AgentRuntimeProperties {
                 "git status",
                 "git diff",
                 "git log",
+                "git init",
+                "git reset",
+                "git rm",
+                "git clean",
+                "git restore",
                 "git checkout -b",
                 "git add",
                 "git commit",
@@ -105,7 +110,7 @@ public class AgentRuntimeProperties {
         ));
         private List<String> dangerousTokens = new ArrayList<>(List.of(
                 "&&", "||", "|", ">", "<", ";", "`", "$(", " rm ", " del ", " rmdir ",
-                "Remove-Item", "Move-Item", "git reset", "git push", "git clean"
+                "Remove-Item", "Move-Item", "git push"
         ));
     }
 

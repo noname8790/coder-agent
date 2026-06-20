@@ -27,7 +27,9 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HexFormat;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -59,6 +61,10 @@ public class MemoryService {
     }
 
     public List<ContextCandidate> recallForRun(AgentRun run) {
+        return recallForRun(run, List.of());
+    }
+
+    public List<ContextCandidate> recallForRun(AgentRun run, Collection<String> excludedRunIds) {
         if (!properties.getMemory().isEnabled() || run == null || !StringUtils.hasText(run.getTask())) {
             return List.of();
         }
@@ -77,9 +83,10 @@ public class MemoryService {
                             run.getWorkspaceKey(),
                             queryEmbedding,
                             properties.getMemory().getTopK(),
-                            properties.getMemory().getMinScore()))
+                    properties.getMemory().getMinScore()))
                     .stream()
                     .filter(hit -> run.getWorkspaceKey().equals(hit.workspaceKey()))
+                    .filter(hit -> !isExcludedMemory(run.getWorkspaceKey(), hit.memoryId(), excludedRunIds))
                     .limit(properties.getMemory().getMaxChunksPerRun())
                     .toList();
             saveRecall(run, hits);
@@ -98,6 +105,20 @@ public class MemoryService {
             log.warn("记忆召回降级 runId={} workspaceKey={} reason={}", run.getRunId(), run.getWorkspaceKey(), e.getMessage());
             return List.of();
         }
+    }
+
+    private boolean isExcludedMemory(String workspaceKey, String memoryId, Collection<String> excludedRunIds) {
+        if (excludedRunIds == null || excludedRunIds.isEmpty() || !StringUtils.hasText(memoryId)) {
+            return false;
+        }
+        Set<String> excluded = new HashSet<>(excludedRunIds);
+        return memoryRepository.listByWorkspace(workspaceKey)
+                .stream()
+                .filter(memory -> memoryId.equals(memory.getMemoryId()))
+                .map(MemoryItem::getSourceId)
+                .filter(StringUtils::hasText)
+                .anyMatch(sourceId -> excluded.stream().anyMatch(runId ->
+                        sourceId.equals(runId) || sourceId.startsWith(runId + ":")));
     }
 
     public void rememberRunSummary(AgentRun run) {

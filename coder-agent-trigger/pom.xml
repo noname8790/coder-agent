@@ -6,7 +6,7 @@
     <parent>
         <groupId>cn.noname</groupId>
         <artifactId>coder-agent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>4.2.0</version>
     </parent>
     <artifactId>coder-agent-trigger</artifactId>
 

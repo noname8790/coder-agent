@@ -6,6 +6,7 @@ import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunCase;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunDraftCase;
 import cn.noname.coder.agent.cases.agent.IQueryRunTraceCase;
+import cn.noname.coder.agent.cases.agent.IRunChangeCase;
 import cn.noname.coder.agent.types.common.Response;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,7 @@ public class AgentRunController {
     private final IQueryAgentRunDraftCase queryAgentRunDraftCase;
     private final IQueryRunTraceCase queryRunTraceCase;
     private final ICancelAgentRunCase cancelAgentRunCase;
+    private final IRunChangeCase runChangeCase;
 
     @PostMapping
     public Response<CreateAgentRunResponseDTO> create(@RequestBody CreateAgentRunRequestDTO request) {
@@ -47,5 +49,15 @@ public class AgentRunController {
     @PostMapping("/{runId}/cancel")
     public Response<CancelAgentRunResponseDTO> cancel(@PathVariable("runId") String runId) {
         return Response.ok(cancelAgentRunCase.cancel(runId));
+    }
+
+    @PostMapping("/{runId}/revert")
+    public Response<RunChangeActionResponseDTO> revert(@PathVariable("runId") String runId) {
+        return Response.ok(runChangeCase.revert(runId));
+    }
+
+    @PostMapping("/{runId}/restore")
+    public Response<RunChangeActionResponseDTO> restore(@PathVariable("runId") String runId) {
+        return Response.ok(runChangeCase.restore(runId));
     }
 }

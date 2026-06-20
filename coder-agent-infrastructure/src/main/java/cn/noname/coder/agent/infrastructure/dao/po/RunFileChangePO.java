@@ -7,20 +7,19 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
-/**
- * agent_conversation 表持久化对象。
- */
 @Data
-@TableName("agent_conversation")
-public class AgentConversationPO {
+@TableName("agent_run_file_change")
+public class RunFileChangePO {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private String conversationId;
-    private String workspaceKey;
-    private String title;
-    private String defaultModel;
-    private String lastModelKey;
-    private String lastPermissionLevel;
+    private String runId;
+    private String filePath;
+    private String changeType;
+    private String beforeHash;
+    private String afterHash;
+    private String beforeSnapshotPath;
+    private String afterSnapshotPath;
+    private Boolean reversible;
+    private String irreversibleReason;
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 }

@@ -10,8 +10,18 @@ public record ConversationResponseDTO(
         String workspaceKey,
         String title,
         String defaultModel,
+        String lastModelKey,
         String lastPermissionLevel,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
+    public ConversationResponseDTO(String conversationId,
+                                   String workspaceKey,
+                                   String title,
+                                   String defaultModel,
+                                   String lastPermissionLevel,
+                                   LocalDateTime createdAt,
+                                   LocalDateTime updatedAt) {
+        this(conversationId, workspaceKey, title, defaultModel, defaultModel, lastPermissionLevel, createdAt, updatedAt);
+    }
 }

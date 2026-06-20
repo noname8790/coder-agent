@@ -3,7 +3,9 @@ package cn.noname.coder.agent.trigger.http;
 import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
+import cn.noname.coder.agent.api.dto.CheckpointRollbackResponseDTO;
 import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
+import cn.noname.coder.agent.cases.conversation.ICheckpointCase;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
 import cn.noname.coder.agent.types.common.Response;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import java.util.List;
 public class ConversationController {
 
     private final IConversationCase conversationCase;
+    private final ICheckpointCase checkpointCase;
 
     @PostMapping
     public Response<ConversationResponseDTO> create(@RequestBody CreateConversationRequestDTO request) {
@@ -57,5 +60,17 @@ public class ConversationController {
     public Response<ConversationMessageDTO> deleteMessage(@PathVariable("conversationId") String conversationId,
                                                           @PathVariable("messageId") String messageId) {
         return Response.ok(conversationCase.deleteMessage(conversationId, messageId));
+    }
+
+    @PostMapping("/{conversationId}/messages/{messageId}/checkpoint/rollback")
+    public Response<CheckpointRollbackResponseDTO> rollbackCheckpoint(@PathVariable("conversationId") String conversationId,
+                                                                      @PathVariable("messageId") String messageId) {
+        return Response.ok(checkpointCase.rollback(conversationId, messageId));
+    }
+
+    @PostMapping("/{conversationId}/checkpoints/{checkpointId}/rollback")
+    public Response<CheckpointRollbackResponseDTO> rollbackCheckpointById(@PathVariable("conversationId") String conversationId,
+                                                                          @PathVariable("checkpointId") String checkpointId) {
+        return Response.ok(checkpointCase.rollbackByCheckpointId(conversationId, checkpointId));
     }
 }

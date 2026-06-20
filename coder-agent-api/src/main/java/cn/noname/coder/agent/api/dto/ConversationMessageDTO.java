@@ -14,6 +14,21 @@ public record ConversationMessageDTO(
         String status,
         String failureReason,
         LocalDateTime createdAt,
-        DiffSummaryDTO diffSummary
+        DiffSummaryDTO diffSummary,
+        Long sequenceNo,
+        String visibilityStatus,
+        String rolledBackByCheckpointId,
+        String modelDisplayName
 ) {
+    public ConversationMessageDTO(String messageId,
+                                  String conversationId,
+                                  String runId,
+                                  String role,
+                                  String content,
+                                  String status,
+                                  String failureReason,
+                                  LocalDateTime createdAt,
+                                  DiffSummaryDTO diffSummary) {
+        this(messageId, conversationId, runId, role, content, status, failureReason, createdAt, diffSummary, null, "VISIBLE", null, null);
+    }
 }

@@ -47,6 +47,57 @@ class RunShellToolTest {
     }
 
     @Test
+    void shouldAllowGitInitGivenDefaultWhitelist() {
+        // Given shell 工具使用默认白名单
+        RunShellTool tool = new RunShellTool(new AgentRuntimeProperties());
+
+        // When 模型请求初始化本地 Git 仓库
+        var result = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"git init\"}");
+
+        // Then 命令可执行，并创建 .git 目录
+        assertEquals(CallStatus.SUCCESS, result.status(), result.summary());
+        assertTrue(Files.isDirectory(workspaceRoot.resolve(".git")));
+    }
+
+    @Test
+    void shouldAllowLocalGitCleanupCommandsGivenDefaultWhitelist() {
+        // Given shell 工具使用默认白名单和危险 token 策略
+        RunShellTool tool = new RunShellTool(new AgentRuntimeProperties());
+
+        // When 模型请求本地 Git 清理/回滚命令
+        var reset = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"git reset --soft HEAD~1\"}");
+        var rm = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"git rm -r --cached .coder\"}");
+        var clean = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"git clean -fd .coder\"}");
+
+        // Then 命令进入执行层，不再被白名单或危险 token 策略提前拦截
+        assertNotEquals(CallStatus.REJECTED, reset.status(), reset.summary());
+        assertNotEquals("DANGEROUS_COMMAND", reset.errorMessage());
+        assertNotEquals(CallStatus.REJECTED, rm.status(), rm.summary());
+        assertNotEquals("DANGEROUS_COMMAND", rm.errorMessage());
+        assertNotEquals(CallStatus.REJECTED, clean.status(), clean.summary());
+        assertNotEquals("DANGEROUS_COMMAND", clean.errorMessage());
+    }
+
+    @Test
+    void shouldAllowGitRestoreGivenDefaultWhitelist() {
+        // Given shell 工具使用默认白名单和危险 token 策略
+        RunShellTool tool = new RunShellTool(new AgentRuntimeProperties());
+
+        // When 模型请求本地 Git restore 命令
+        var restore = tool.execute("run_1", new WorkspaceDescriptor("repo", workspaceRoot),
+                "{\"command\":\"git restore --staged .coder\"}");
+
+        // Then 命令进入执行层，不被白名单提前拦截
+        assertNotEquals(CallStatus.REJECTED, restore.status(), restore.summary());
+        assertNotEquals("COMMAND_NOT_ALLOWED", restore.errorMessage());
+        assertNotEquals("DANGEROUS_COMMAND", restore.errorMessage());
+    }
+
+    @Test
     void shouldAllowCdPrefixGivenCommandRunsInWorkspaceSubDirectory() throws Exception {
         // Given workspace 子目录存在
         Path subDir = Files.createDirectories(workspaceRoot.resolve("demo"));

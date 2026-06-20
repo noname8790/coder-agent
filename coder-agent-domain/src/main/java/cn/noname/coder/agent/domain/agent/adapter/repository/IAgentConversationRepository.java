@@ -26,7 +26,14 @@ public interface IAgentConversationRepository {
 
     Optional<AgentMessage> findMessage(String messageId);
 
+    default long nextMessageSequence(String conversationId) {
+        return System.currentTimeMillis();
+    }
+
     void updateMessage(AgentMessage message);
+
+    default void markMessagesRolledBackAfter(String conversationId, long messageSeq, String checkpointId) {
+    }
 
     void deleteMessage(String messageId);
 

@@ -25,7 +25,7 @@ public class GitAddTool implements LocalTool {
             return new ToolResult(CallStatus.REJECTED, "git_add 路径不允许: " + path, "", 1, "INVALID_ARGUMENT");
         }
         try {
-            var result = GitToolSupport.git(workspace, Duration.ofSeconds(30), "add", "--", path);
+            var result = GitToolSupport.git(workspace, Duration.ofSeconds(120), "add", "--", path);
             return new ToolResult(result.status(), result.output().isBlank() ? "git add 完成: " + path : result.output(),
                     result.output(), result.exitCode(), result.errorMessage());
         } catch (Exception e) {

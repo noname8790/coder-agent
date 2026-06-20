@@ -16,6 +16,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -84,6 +87,7 @@ public class ToolGateway implements IToolGateway {
             return governanceResult;
         }
         try {
+            ensureCoderIgnoredIfGitWrite(workspace, invocation);
             ToolResult result = toolGovernancePort.sanitizeAfterExecution(runId, workspace.workspaceKey(), invocation,
                     tool.execute(runId, workspace, invocation.argumentsJson()));
             log.info("工具网关执行完成 runId={} tool={} status={} exitCode={}",
@@ -133,7 +137,7 @@ public class ToolGateway implements IToolGateway {
 
     private ToolResult rejectShellIfNotAllowed(AgentPermissionLevel permissionLevel, String argumentsJson) {
         String command = ToolJson.string(ToolJson.parse(argumentsJson), "command", "").trim().toLowerCase();
-        if (command.startsWith("git push") || command.startsWith("git clean") || command.startsWith("git reset --hard")) {
+        if (command.startsWith("git push")) {
             return rejected("禁止高风险 Git 操作：" + command, "DANGEROUS_COMMAND");
         }
         if (isGitWriteCommand(command) && !permissionLevel.atLeast(AgentPermissionLevel.DEFAULT)) {
@@ -149,9 +153,50 @@ public class ToolGateway implements IToolGateway {
     }
 
     private boolean isGitWriteCommand(String command) {
-        return command.startsWith("git checkout -b")
+        return command.equals("git init")
+                || command.startsWith("git init ")
+                || command.equals("git reset")
+                || command.startsWith("git reset ")
+                || command.equals("git rm")
+                || command.startsWith("git rm ")
+                || command.equals("git clean")
+                || command.startsWith("git clean ")
+                || command.equals("git restore")
+                || command.startsWith("git restore ")
+                || command.startsWith("git checkout -b")
                 || command.startsWith("git add")
                 || command.startsWith("git commit");
+    }
+
+    private void ensureCoderIgnoredIfGitWrite(WorkspaceDescriptor workspace, ToolInvocation invocation) {
+        if (!"run_shell".equals(invocation.name())) {
+            return;
+        }
+        String command = ToolJson.string(ToolJson.parse(invocation.argumentsJson()), "command", "").trim().toLowerCase();
+        if (!isGitWriteCommand(command)) {
+            return;
+        }
+        ensureCoderIgnored(workspace.rootPath());
+    }
+
+    private void ensureCoderIgnored(Path rootPath) {
+        Path gitignore = rootPath.resolve(".gitignore");
+        try {
+            String existing = Files.exists(gitignore) ? Files.readString(gitignore, StandardCharsets.UTF_8) : "";
+            boolean alreadyIgnored = existing.lines()
+                    .map(String::trim)
+                    .anyMatch(line -> ".coder/".equals(line) || ".coder".equals(line));
+            if (alreadyIgnored) {
+                return;
+            }
+            String separator = existing.isBlank() || existing.endsWith("\n") || existing.endsWith("\r\n")
+                    ? ""
+                    : System.lineSeparator();
+            Files.writeString(gitignore, existing + separator + ".coder/" + System.lineSeparator(), StandardCharsets.UTF_8);
+            log.info("已确保 Git 写入前忽略 .coder 运行工件 rootPath={}", rootPath);
+        } catch (Exception e) {
+            throw new AppException("WORKSPACE_GITIGNORE_UPDATE_FAILED", "写入 .gitignore 失败：" + e.getMessage());
+        }
     }
 
     private boolean isTestCommand(String command) {

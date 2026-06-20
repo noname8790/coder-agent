@@ -21,7 +21,7 @@ public class GitStatusTool implements LocalTool {
     @Override
     public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
         try {
-            var result = GitToolSupport.git(workspace, Duration.ofSeconds(20), "status", "--short");
+            var result = GitToolSupport.git(workspace, Duration.ofSeconds(120), "status", "--short");
             String summary = result.output().isBlank() ? "Git 工作区干净。" : result.output();
             return new ToolResult(result.status(), summary, result.output(), result.exitCode(), result.errorMessage());
         } catch (Exception e) {

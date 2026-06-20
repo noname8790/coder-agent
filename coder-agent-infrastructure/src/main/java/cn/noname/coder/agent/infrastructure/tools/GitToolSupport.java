@@ -40,7 +40,7 @@ final class GitToolSupport {
 
     static List<ChangedFile> changedFiles(WorkspaceDescriptor workspace) {
         try {
-            GitCommandResult result = git(workspace, Duration.ofSeconds(20), "diff", "--numstat", "HEAD");
+            GitCommandResult result = git(workspace, Duration.ofSeconds(120), "diff", "--numstat", "HEAD");
             if (result.status() != CallStatus.SUCCESS || result.output().isBlank()) {
                 return List.of();
             }

@@ -50,6 +50,21 @@ class WorkspaceCaseTest {
     }
 
     @Test
+    void shouldEnsureCoderDirectoryIgnoredGivenWorkspaceCreated() throws Exception {
+        // Given 一个没有 .gitignore 的本地 workspace
+        InMemoryWorkspaceRepository repository = new InMemoryWorkspaceRepository();
+        CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(repository);
+
+        // When 注册 workspace
+        createCase.create(new CreateWorkspaceRequestDTO("demo", workspaceRoot.toString()));
+
+        // Then 自动忽略 .coder 运行工件目录
+        Path gitignore = workspaceRoot.resolve(".gitignore");
+        assertTrue(Files.exists(gitignore));
+        assertTrue(Files.readString(gitignore).lines().anyMatch(".coder/"::equals));
+    }
+
+    @Test
     void shouldRejectWorkspaceGivenRelativeOrMissingPath() {
         // Given workspace 注册用例
         CreateWorkspaceCaseImpl createCase = new CreateWorkspaceCaseImpl(new InMemoryWorkspaceRepository());

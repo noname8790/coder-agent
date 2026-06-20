@@ -11,6 +11,7 @@ import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationR
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
@@ -48,6 +49,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
     private final IArtifactPort artifactPort;
     private final IModelConfigPort modelConfigPort;
     private final IContextSnapshotRepository contextSnapshotRepository;
+    private final IRunChangeRepository runChangeRepository;
     private final MemoryService memoryService;
     private final IToolApprovalRepository toolApprovalRepository;
     private final AgentRuntimeProperties properties;
@@ -61,6 +63,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
                                   IArtifactPort artifactPort,
                                   IModelConfigPort modelConfigPort,
                                   IContextSnapshotRepository contextSnapshotRepository,
+                                  IRunChangeRepository runChangeRepository,
                                   MemoryService memoryService,
                                   IToolApprovalRepository toolApprovalRepository,
                                   AgentRuntimeProperties properties,
@@ -73,6 +76,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         this.artifactPort = artifactPort;
         this.modelConfigPort = modelConfigPort;
         this.contextSnapshotRepository = contextSnapshotRepository;
+        this.runChangeRepository = runChangeRepository;
         this.memoryService = memoryService;
         this.toolApprovalRepository = toolApprovalRepository;
         this.properties = properties;
@@ -136,7 +140,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
     private ModelBackendConfig resolveModel(CreateAgentRunRequestDTO request, AgentConversation conversation) {
         String model = StringUtils.hasText(request.model())
                 ? request.model()
-                : conversation == null ? request.model() : conversation.getDefaultModel();
+                : conversation == null ? request.model() : conversation.getLastModelKey();
         return modelConfigPort.resolve(model)
                 .orElseThrow(() -> new AppException("MODEL_NOT_CONFIGURED", "模型未配置：" + model));
     }
@@ -208,6 +212,8 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
             }
             conversation.setUpdatedAt(LocalDateTime.now());
             conversation.setLastPermissionLevel(permissionLevel);
+            conversation.setLastModelKey(run.getModel());
+            conversation.setDefaultModel(run.getModel());
             conversationRepository.updateConversation(conversation);
         }
         if (permissionLevel != AgentPermissionLevel.READ_ONLY) {
@@ -236,6 +242,7 @@ public class CreateAgentRunCaseImpl implements ICreateAgentRunCase {
         }
         List<String> runIds = List.of(oldRunId);
         contextSnapshotRepository.deleteByRunIds(runIds);
+        runChangeRepository.deleteByRunIds(runIds);
         memoryService.deleteRunMemories(workspaceKey, runIds);
         toolApprovalRepository.deleteByRunIds(runIds);
         recordRepository.deleteByRunIds(runIds);

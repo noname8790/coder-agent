@@ -19,6 +19,7 @@ Spring Boot 3.x + MyBatis-Plus + JDK 17/21 + MySQL + Elasticsearch + PostgreSQL/
 - 使用 Given/When/Then 格式描述测试场景
 - 变更必须包含回滚方案
 - 标注影响的模块和数据库表
+- 版本号变更时要同步更新POM项目版本
 
 
 

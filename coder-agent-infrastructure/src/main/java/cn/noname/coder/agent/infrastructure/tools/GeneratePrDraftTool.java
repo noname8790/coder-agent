@@ -30,7 +30,7 @@ public class GeneratePrDraftTool implements LocalTool {
         String title = ToolJson.string(args, "title", "Agent changes");
         String summary = ToolJson.string(args, "summary", "本地 Agent 生成的仓库变更。");
         try {
-            var stat = GitToolSupport.git(workspace, Duration.ofSeconds(30), "diff", "--stat");
+            var stat = GitToolSupport.git(workspace, Duration.ofSeconds(120), "diff", "--stat");
             String content = """
                     # %s
 

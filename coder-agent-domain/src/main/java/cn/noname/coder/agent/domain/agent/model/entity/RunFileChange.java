@@ -8,21 +8,22 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 会话消息，保存用户任务、Agent 最终回答和运行摘要。
+ * 单个文件的可逆变更记录。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentMessage {
+public class RunFileChange {
     private Long id;
-    private String messageId;
-    private String conversationId;
     private String runId;
-    private String role;
-    private String content;
-    private Long sequenceNo;
-    private String visibilityStatus;
-    private String rolledBackByCheckpointId;
+    private String filePath;
+    private String changeType;
+    private String beforeHash;
+    private String afterHash;
+    private String beforeSnapshotPath;
+    private String afterSnapshotPath;
+    private Boolean reversible;
+    private String irreversibleReason;
     private LocalDateTime createdAt;
 }

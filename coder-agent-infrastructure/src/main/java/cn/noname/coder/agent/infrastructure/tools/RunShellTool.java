@@ -130,8 +130,12 @@ public class RunShellTool implements LocalTool {
     }
 
     private String validateCommand(String command) {
-        String lower = " " + command.toLowerCase() + " ";
+        String normalized = command.trim().toLowerCase();
+        String lower = " " + normalized + " ";
         for (String token : properties.getTools().getDangerousTokens()) {
+            if (shouldIgnoreDangerousToken(normalized, token)) {
+                continue;
+            }
             if (lower.contains(token.toLowerCase())) {
                 return "命令包含危险 token: " + token;
             }
@@ -142,6 +146,10 @@ public class RunShellTool implements LocalTool {
             return "命令不在白名单中: " + command;
         }
         return null;
+    }
+
+    private boolean shouldIgnoreDangerousToken(String command, String token) {
+        return " rm ".equals(token) && (command.equals("git rm") || command.startsWith("git rm "));
     }
 
     private String validationCode(String message) {

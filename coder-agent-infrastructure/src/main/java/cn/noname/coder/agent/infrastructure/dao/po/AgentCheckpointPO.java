@@ -7,20 +7,18 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
-/**
- * agent_conversation 表持久化对象。
- */
 @Data
-@TableName("agent_conversation")
-public class AgentConversationPO {
+@TableName("agent_checkpoint")
+public class AgentCheckpointPO {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private String checkpointId;
     private String conversationId;
     private String workspaceKey;
-    private String title;
-    private String defaultModel;
-    private String lastModelKey;
-    private String lastPermissionLevel;
+    private String messageId;
+    private String runId;
+    private Long messageSeq;
+    private String rollbackStatus;
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private LocalDateTime rollbackAt;
 }

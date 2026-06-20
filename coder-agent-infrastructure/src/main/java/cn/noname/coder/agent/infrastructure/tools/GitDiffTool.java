@@ -21,9 +21,9 @@ public class GitDiffTool implements LocalTool {
     @Override
     public ToolResult execute(String runId, WorkspaceDescriptor workspace, String argumentsJson) {
         try {
-            var result = GitToolSupport.git(workspace, Duration.ofSeconds(30), "diff", "--stat");
+            var result = GitToolSupport.git(workspace, Duration.ofSeconds(120), "diff", "--stat");
             String summary = result.output().isBlank() ? "没有未提交 diff。" : result.output();
-            var full = GitToolSupport.git(workspace, Duration.ofSeconds(30), "diff", "--", ".");
+            var full = GitToolSupport.git(workspace, Duration.ofSeconds(120), "diff", "--", ".");
             return new ToolResult(result.status(), summary, full.output(), result.exitCode(), result.errorMessage(),
                     GitToolSupport.changedFiles(workspace), null);
         } catch (Exception e) {

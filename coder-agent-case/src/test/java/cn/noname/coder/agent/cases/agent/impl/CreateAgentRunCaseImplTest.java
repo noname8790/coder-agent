@@ -9,6 +9,7 @@ import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationR
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
@@ -42,6 +43,7 @@ class CreateAgentRunCaseImplTest {
         IArtifactPort artifactPort = mock(IArtifactPort.class);
         IModelConfigPort modelConfigPort = mock(IModelConfigPort.class);
         IContextSnapshotRepository contextSnapshotRepository = mock(IContextSnapshotRepository.class);
+        IRunChangeRepository runChangeRepository = mock(IRunChangeRepository.class);
         MemoryService memoryService = mock(MemoryService.class);
         IToolApprovalRepository toolApprovalRepository = mock(IToolApprovalRepository.class);
         AgentRunExecutor executor = mock(AgentRunExecutor.class);
@@ -72,7 +74,7 @@ class CreateAgentRunCaseImplTest {
         when(modelConfigPort.resolve("glm-5")).thenReturn(Optional.of(new ModelBackendConfig("glm-5", "openai-compatible", "glm-5",
                 "https://example.test/v1", "test-key", "chat-completions", 0.2, 60)));
         CreateAgentRunCaseImpl createCase = new CreateAgentRunCaseImpl(workspacePort, runRepository, recordRepository,
-                conversationRepository, artifactPort, modelConfigPort, contextSnapshotRepository, memoryService,
+                conversationRepository, artifactPort, modelConfigPort, contextSnapshotRepository, runChangeRepository, memoryService,
                 toolApprovalRepository, properties, executor, new SyncTaskExecutor());
 
         createCase.create(new CreateAgentRunRequestDTO("demo", "new task", "glm-5", "conv_1", "READ_ONLY", "msg_1"));
@@ -83,6 +85,7 @@ class CreateAgentRunCaseImplTest {
         assertEquals("new task", messageCaptor.getValue().getContent());
         verify(conversationRepository).deleteAgentMessagesByRunId("run_old");
         verify(contextSnapshotRepository).deleteByRunIds(List.of("run_old"));
+        verify(runChangeRepository).deleteByRunIds(List.of("run_old"));
         verify(memoryService).deleteRunMemories("demo", List.of("run_old"));
         verify(toolApprovalRepository).deleteByRunIds(List.of("run_old"));
         verify(recordRepository).deleteByRunIds(List.of("run_old"));

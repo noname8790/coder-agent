@@ -5,6 +5,11 @@ public record DiffFileDTO(
         String changeType,
         int addedLines,
         int deletedLines,
-        String patchSnippet
+        String patchSnippet,
+        Boolean reversible,
+        String irreversibleReason
 ) {
+    public DiffFileDTO(String path, String changeType, int addedLines, int deletedLines, String patchSnippet) {
+        this(path, changeType, addedLines, deletedLines, patchSnippet, true, null);
+    }
 }

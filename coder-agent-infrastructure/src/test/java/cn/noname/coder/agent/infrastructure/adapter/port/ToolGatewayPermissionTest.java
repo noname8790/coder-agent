@@ -13,6 +13,7 @@ import cn.noname.coder.agent.types.enums.CallStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -82,11 +83,53 @@ class ToolGatewayPermissionTest {
 
         // When 执行本地 commit / Then 允许；执行 push / Then 拒绝
         assertEquals(CallStatus.SUCCESS, gateway.execute(run, workspace(),
+                new ToolInvocation("0", "run_shell", "{\"command\":\"git init\"}")).status());
+        assertEquals(CallStatus.SUCCESS, gateway.execute(run, workspace(),
                 new ToolInvocation("1", "run_shell", "{\"command\":\"git commit -m test\"}")).status());
         ToolResult push = gateway.execute(run, workspace(),
                 new ToolInvocation("2", "run_shell", "{\"command\":\"git push\"}"));
         assertEquals(CallStatus.REJECTED, push.status());
         assertEquals("DANGEROUS_COMMAND", push.errorMessage());
+    }
+
+    @Test
+    void shouldAllowLocalGitCleanupCommandsOutsideReadOnlyPermission() {
+        // Given Git 清理/回滚命令属于本地仓库写入能力
+        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
+
+        // When READ_ONLY 执行本地 Git 清理命令 / Then 拒绝
+        ToolResult readOnly = gateway.execute(run(AgentPermissionLevel.READ_ONLY), workspace(),
+                new ToolInvocation("1", "run_shell", "{\"command\":\"git rm -r --cached .coder\"}"));
+        assertEquals(CallStatus.REJECTED, readOnly.status());
+        assertEquals("PERMISSION_REJECTED", readOnly.errorMessage());
+        ToolResult restoreReadOnly = gateway.execute(run(AgentPermissionLevel.READ_ONLY), workspace(),
+                new ToolInvocation("1b", "run_shell", "{\"command\":\"git restore --staged .coder\"}"));
+        assertEquals(CallStatus.REJECTED, restoreReadOnly.status());
+        assertEquals("PERMISSION_REJECTED", restoreReadOnly.errorMessage());
+
+        // When DEFAULT/FULL_ACCESS 执行本地 Git 清理命令 / Then 交给后续审批或工具执行链路
+        assertEquals(CallStatus.SUCCESS, gateway.execute(run(AgentPermissionLevel.DEFAULT), workspace(),
+                new ToolInvocation("2", "run_shell", "{\"command\":\"git reset --soft HEAD~1\"}")).status());
+        assertEquals(CallStatus.SUCCESS, gateway.execute(run(AgentPermissionLevel.DEFAULT), workspace(),
+                new ToolInvocation("3", "run_shell", "{\"command\":\"git clean -fd .coder\"}")).status());
+        assertEquals(CallStatus.SUCCESS, gateway.execute(run(AgentPermissionLevel.DEFAULT), workspace(),
+                new ToolInvocation("3b", "run_shell", "{\"command\":\"git restore --staged .coder\"}")).status());
+        assertEquals(CallStatus.SUCCESS, gateway.execute(run(AgentPermissionLevel.FULL_ACCESS), workspace(),
+                new ToolInvocation("4", "run_shell", "{\"command\":\"git rm -r --cached .coder\"}")).status());
+    }
+
+    @Test
+    void shouldEnsureCoderDirectoryIgnoredBeforeGitWriteCommand() throws Exception {
+        // Given 已注册的活跃 workspace 还没有 .gitignore
+        ToolGateway gateway = new ToolGateway(List.of(successTool("run_shell")), noopGovernance());
+
+        // When Agent 执行 Git 写入命令
+        ToolResult result = gateway.execute(run(AgentPermissionLevel.DEFAULT), workspace(),
+                new ToolInvocation("1", "run_shell", "{\"command\":\"git add .\"}"));
+
+        // Then 执行前会补齐 .coder 忽略规则，避免运行工件进入提交
+        assertEquals(CallStatus.SUCCESS, result.status());
+        assertTrue(Files.readString(workspaceRoot.resolve(".gitignore")).contains(".coder/"));
     }
 
     private AgentRun run(AgentPermissionLevel permissionLevel) {

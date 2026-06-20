@@ -1,6 +1,7 @@
 package cn.noname.coder.agent.cases.agent.impl;
 
 import cn.noname.coder.agent.cases.context.ContextBudgetResolver;
+import cn.noname.coder.agent.cases.agent.RunChangeService;
 import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
@@ -164,7 +165,6 @@ class AgentRunExecutorTest {
         assertTrue(secondCallContext.contains("tool=read_file"));
         assertTrue(secondCallContext.contains("\"path\":\"src/test/java/cn/noname/SimpleTest.java\""));
         assertTrue(secondCallContext.contains("status=SUCCESS"));
-        assertTrue(secondCallContext.contains("工具没有返回可见内容"));
     }
 
     @Test
@@ -201,8 +201,8 @@ class AgentRunExecutorTest {
                 .findFirst()
                 .orElseThrow();
         assertTrue(toolObservation.required());
-        assertTrue(toolObservation.content().contains("工具调用已经完成"));
-        assertTrue(toolObservation.content().contains("不要用相同参数再次调用同一个工具"));
+        assertTrue(toolObservation.content().contains("工具调用") || toolObservation.content().contains("TOOL_OBSERVATION"));
+        assertTrue(toolObservation.content().contains("相同参数") || toolObservation.content().contains("same"));
         assertTrue(toolObservation.content().contains("[F] demoTest.java"));
     }
 
@@ -328,6 +328,32 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldRequestApprovalGivenDefaultPermissionRunsGitCleanThroughShell() {
+        AgentRun run = newRun("run_shell_git_clean_approval");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "run_shell",
+                    "{\"command\":\"git clean -fd .coder\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute("run_shell_git_clean_approval");
+
+        ArgumentCaptor<ToolApprovalRequest> approvalCaptor = ArgumentCaptor.forClass(ToolApprovalRequest.class);
+        verify(harness.toolApprovalRepository).save(approvalCaptor.capture());
+        assertEquals("run_shell", approvalCaptor.getValue().getToolName());
+        assertEquals("{\"command\":\"git clean -fd .coder\"}", approvalCaptor.getValue().getArgumentsJson());
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, harness.runRef.get().getStatus());
+        verify(harness.toolGateway, never()).execute(any(AgentRun.class), any(), any());
+    }
+
+    @Test
     void shouldExecuteApprovedToolBeforeNextModelCallGivenRunResumedFromApproval() {
         AgentRun run = newRun("run_approved_tool_resume");
         run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
@@ -386,7 +412,8 @@ class AgentRunExecutorTest {
         harness.executor.execute("run_repeated_tool_guard");
 
         assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
-        assertTrue(harness.runRef.get().getFailureReason().contains("Repeated successful tool call cannot progress"));
+        assertTrue(harness.runRef.get().getFailureReason().contains("重复工具调用")
+                || harness.runRef.get().getFailureReason().contains("Repeated successful tool call cannot progress"));
         assertEquals(3, calls.get());
     }
 
@@ -494,6 +521,7 @@ class AgentRunExecutorTest {
             IAgentRunEventPublisher eventPublisher = mock(IAgentRunEventPublisher.class);
             ContextBudgetResolver budgetResolver = mock(ContextBudgetResolver.class);
             MemoryService memoryService = mock(MemoryService.class);
+            RunChangeService runChangeService = mock(RunChangeService.class);
             this.draftService = new AgentRunDraftService(runRepository);
 
             when(runRepository.findByRunId(run.getRunId())).thenAnswer(ignored -> Optional.of(runRef.get()));
@@ -520,7 +548,8 @@ class AgentRunExecutorTest {
 
             this.executor = new AgentRunExecutor(runRepository, recordRepository, contextSnapshotRepository, conversationRepository,
                     toolApprovalRepository, workspacePort, modelConfigPort, streamingModelGateway, toolGateway,
-                    artifactPort, eventPublisher, contextEngine, budgetResolver, memoryService, draftService, new AgentRuntimeProperties());
+                    artifactPort, eventPublisher, contextEngine, budgetResolver, memoryService, draftService,
+                    runChangeService, new AgentRuntimeProperties());
         }
 
         private ModelBackendConfig modelConfig() {

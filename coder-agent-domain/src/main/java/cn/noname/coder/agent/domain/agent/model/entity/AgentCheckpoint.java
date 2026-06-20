@@ -1,6 +1,5 @@
 package cn.noname.coder.agent.domain.agent.model.entity;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,20 +8,21 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 一个本地 workspace 下的 Agent 对话。
+ * 会话内检查点，用于把当前 workspace 回滚到某条 Agent 消息之后的状态。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentConversation {
+public class AgentCheckpoint {
     private Long id;
+    private String checkpointId;
     private String conversationId;
     private String workspaceKey;
-    private String title;
-    private String defaultModel;
-    private String lastModelKey;
-    private AgentPermissionLevel lastPermissionLevel;
+    private String messageId;
+    private String runId;
+    private Long messageSeq;
+    private String rollbackStatus;
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private LocalDateTime rollbackAt;
 }

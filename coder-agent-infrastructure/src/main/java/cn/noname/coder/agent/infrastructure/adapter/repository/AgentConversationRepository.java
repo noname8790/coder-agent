@@ -12,6 +12,7 @@ import cn.noname.coder.agent.infrastructure.dao.po.AgentConversationPO;
 import cn.noname.coder.agent.infrastructure.dao.po.AgentMessagePO;
 import cn.noname.coder.agent.infrastructure.dao.po.PermissionAuditPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
@@ -67,15 +68,33 @@ public class AgentConversationRepository implements IAgentConversationRepository
 
     @Override
     public void saveMessage(AgentMessage message) {
+        if (message.getSequenceNo() == null || message.getSequenceNo() <= 0) {
+            message.setSequenceNo(nextMessageSequence(message.getConversationId()));
+        }
+        if (!StringUtils.hasText(message.getVisibilityStatus())) {
+            message.setVisibilityStatus("VISIBLE");
+        }
         AgentMessagePO po = new AgentMessagePO();
         po.setMessageId(message.getMessageId());
         po.setConversationId(message.getConversationId());
         po.setRunId(message.getRunId());
         po.setRole(message.getRole());
         po.setContent(message.getContent());
+        po.setSequenceNo(message.getSequenceNo());
+        po.setVisibilityStatus(message.getVisibilityStatus());
+        po.setRolledBackByCheckpointId(message.getRolledBackByCheckpointId());
         po.setCreatedAt(message.getCreatedAt());
         messageDao.insert(po);
         message.setId(po.getId());
+    }
+
+    @Override
+    public long nextMessageSequence(String conversationId) {
+        AgentMessagePO latest = messageDao.selectOne(new LambdaQueryWrapper<AgentMessagePO>()
+                .eq(AgentMessagePO::getConversationId, conversationId)
+                .orderByDesc(AgentMessagePO::getSequenceNo)
+                .last("LIMIT 1"));
+        return latest == null || latest.getSequenceNo() == null ? 1L : latest.getSequenceNo() + 1;
     }
 
     @Override
@@ -94,8 +113,21 @@ public class AgentConversationRepository implements IAgentConversationRepository
         po.setRunId(message.getRunId());
         po.setRole(message.getRole());
         po.setContent(message.getContent());
+        po.setSequenceNo(message.getSequenceNo());
+        po.setVisibilityStatus(StringUtils.hasText(message.getVisibilityStatus()) ? message.getVisibilityStatus() : "VISIBLE");
+        po.setRolledBackByCheckpointId(message.getRolledBackByCheckpointId());
         po.setCreatedAt(message.getCreatedAt());
         messageDao.updateById(po);
+    }
+
+    @Override
+    public void markMessagesRolledBackAfter(String conversationId, long messageSeq, String checkpointId) {
+        messageDao.update(null, new LambdaUpdateWrapper<AgentMessagePO>()
+                .set(AgentMessagePO::getVisibilityStatus, "ROLLED_BACK")
+                .set(AgentMessagePO::getRolledBackByCheckpointId, checkpointId)
+                .eq(AgentMessagePO::getConversationId, conversationId)
+                .gt(AgentMessagePO::getSequenceNo, messageSeq)
+                .ne(AgentMessagePO::getVisibilityStatus, "DELETED"));
     }
 
     @Override
@@ -136,6 +168,7 @@ public class AgentConversationRepository implements IAgentConversationRepository
     public List<AgentMessage> listMessages(String conversationId) {
         return messageDao.selectList(new LambdaQueryWrapper<AgentMessagePO>()
                         .eq(AgentMessagePO::getConversationId, conversationId)
+                        .orderByAsc(AgentMessagePO::getSequenceNo)
                         .orderByAsc(AgentMessagePO::getCreatedAt))
                 .stream()
                 .map(this::toMessageEntity)
@@ -163,6 +196,7 @@ public class AgentConversationRepository implements IAgentConversationRepository
         po.setWorkspaceKey(conversation.getWorkspaceKey());
         po.setTitle(conversation.getTitle());
         po.setDefaultModel(conversation.getDefaultModel());
+        po.setLastModelKey(conversation.getLastModelKey());
         po.setLastPermissionLevel(conversation.getLastPermissionLevel() == null ? null : conversation.getLastPermissionLevel().name());
         po.setCreatedAt(conversation.getCreatedAt());
         po.setUpdatedAt(conversation.getUpdatedAt());
@@ -176,6 +210,7 @@ public class AgentConversationRepository implements IAgentConversationRepository
                 .workspaceKey(po.getWorkspaceKey())
                 .title(po.getTitle())
                 .defaultModel(po.getDefaultModel())
+                .lastModelKey(StringUtils.hasText(po.getLastModelKey()) ? po.getLastModelKey() : po.getDefaultModel())
                 .lastPermissionLevel(AgentPermissionLevel.parse(po.getLastPermissionLevel()))
                 .createdAt(po.getCreatedAt())
                 .updatedAt(po.getUpdatedAt())
@@ -190,6 +225,9 @@ public class AgentConversationRepository implements IAgentConversationRepository
                 .runId(po.getRunId())
                 .role(po.getRole())
                 .content(po.getContent())
+                .sequenceNo(po.getSequenceNo())
+                .visibilityStatus(StringUtils.hasText(po.getVisibilityStatus()) ? po.getVisibilityStatus() : "VISIBLE")
+                .rolledBackByCheckpointId(po.getRolledBackByCheckpointId())
                 .createdAt(po.getCreatedAt())
                 .build();
     }

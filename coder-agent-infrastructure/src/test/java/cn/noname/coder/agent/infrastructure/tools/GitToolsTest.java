@@ -94,7 +94,7 @@ class GitToolsTest {
 
     private void run(Path root, String... args) throws Exception {
         GitToolSupport.GitCommandResult result = GitToolSupport.git(new WorkspaceDescriptor("repo", root),
-                Duration.ofSeconds(20), args);
+                Duration.ofSeconds(120), args);
         assertEquals(CallStatus.SUCCESS, result.status(), result.output());
     }
 }

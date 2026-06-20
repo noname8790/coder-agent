@@ -2,6 +2,8 @@ package cn.noname.coder.agent.trigger.http;
 
 import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
+import cn.noname.coder.agent.api.dto.CheckpointRollbackResponseDTO;
+import cn.noname.coder.agent.cases.conversation.ICheckpointCase;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +35,8 @@ class ConversationControllerTest {
 
     @MockBean
     private IConversationCase conversationCase;
+    @MockBean
+    private ICheckpointCase checkpointCase;
 
     @Test
     void shouldCreateConversationGivenValidRequest() throws Exception {
@@ -100,6 +104,21 @@ class ConversationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.messageId").value("msg_1"));
         verify(conversationCase).deleteMessage("conv_1", "msg_1");
+    }
+
+    @Test
+    void shouldRollbackCheckpointGivenCheckpointId() throws Exception {
+        // Given 检查点存在且可回滚
+        when(checkpointCase.rollbackByCheckpointId("conv_1", "chkpt_1")).thenReturn(
+                new CheckpointRollbackResponseDTO("chkpt_1", "conv_1", "ROLLED_BACK",
+                        List.of("run_2"), List.of(), List.of(), "已还原到检查点"));
+
+        // When 按检查点 ID 回滚 / Then 调用标准 checkpoint 回滚入口
+        mockMvc.perform(post("/api/conversations/conv_1/checkpoints/chkpt_1/rollback"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.checkpointId").value("chkpt_1"))
+                .andExpect(jsonPath("$.data.status").value("ROLLED_BACK"));
+        verify(checkpointCase).rollbackByCheckpointId("conv_1", "chkpt_1");
     }
 
     private ConversationResponseDTO conversation() {

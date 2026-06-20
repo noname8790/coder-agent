@@ -20,5 +20,8 @@ public class AgentMessagePO {
     private String runId;
     private String role;
     private String content;
+    private Long sequenceNo;
+    private String visibilityStatus;
+    private String rolledBackByCheckpointId;
     private LocalDateTime createdAt;
 }

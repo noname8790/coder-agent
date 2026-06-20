@@ -27,6 +27,8 @@ class ConversationCaseImplTest {
         InMemoryRecordRepository recordRepository = new InMemoryRecordRepository();
         InMemoryContextSnapshotRepository contextSnapshotRepository = new InMemoryContextSnapshotRepository();
         InMemoryToolApprovalRepository toolApprovalRepository = new InMemoryToolApprovalRepository();
+        InMemoryRunChangeRepository runChangeRepository = new InMemoryRunChangeRepository();
+        InMemoryModelProviderRepository modelProviderRepository = new InMemoryModelProviderRepository();
         RecordingMemoryRepository memoryRepository = new RecordingMemoryRepository();
         RecordingVectorMemoryPort vectorMemoryPort = new RecordingVectorMemoryPort();
         AgentRuntimeProperties properties = new AgentRuntimeProperties();
@@ -45,6 +47,8 @@ class ConversationCaseImplTest {
                 new NoopModelConfigPort(),
                 recordRepository,
                 toolApprovalRepository,
+                runChangeRepository,
+                modelProviderRepository,
                 org.mockito.Mockito.mock(cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort.class),
                 org.mockito.Mockito.mock(DiffSummaryAssembler.class));
         AgentConversation conversation = AgentConversation.builder()
@@ -66,6 +70,7 @@ class ConversationCaseImplTest {
         assertEquals(List.of("run_1", "run_2"), runRepository.deletedRunIds);
         assertEquals(List.of("run_1", "run_2"), recordRepository.deletedRunIds);
         assertEquals(List.of("run_1", "run_2"), toolApprovalRepository.deletedRunIds);
+        assertEquals(List.of("run_1", "run_2"), runChangeRepository.deletedRunIds);
         assertEquals(List.of("run_1", "run_2"), contextSnapshotRepository.deletedRunIds);
         assertEquals(List.of("run_1", "run_2"), memoryRepository.deletedRunIds);
         assertEquals(List.of("run_1", "run_2"), vectorMemoryPort.deletedRunIds);
@@ -281,6 +286,76 @@ class ConversationCaseImplTest {
         @Override
         public void deleteByRunIds(Collection<String> runIds) {
             deletedRunIds.addAll(runIds);
+        }
+    }
+
+    private static class InMemoryRunChangeRepository implements IRunChangeRepository {
+        private final List<String> deletedRunIds = new ArrayList<>();
+
+        @Override
+        public void saveChangeSet(RunChangeSet changeSet, List<RunFileChange> files) {
+        }
+
+        @Override
+        public void updateChangeSet(RunChangeSet changeSet) {
+        }
+
+        @Override
+        public Optional<RunChangeSet> findChangeSet(String runId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public List<RunFileChange> listFileChanges(String runId) {
+            return List.of();
+        }
+
+        @Override
+        public List<RunChangeSet> listByConversationId(String conversationId) {
+            return List.of();
+        }
+
+        @Override
+        public void deleteByRunIds(Collection<String> runIds) {
+            deletedRunIds.addAll(runIds);
+        }
+    }
+
+    private static class InMemoryModelProviderRepository implements IModelProviderRepository {
+        @Override
+        public void save(ModelProvider provider) {
+        }
+
+        @Override
+        public void update(ModelProvider provider) {
+        }
+
+        @Override
+        public Optional<ModelProvider> findByModelKey(String modelKey) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<ModelProvider> findDefaultEnabled() {
+            return Optional.empty();
+        }
+
+        @Override
+        public List<ModelProvider> listAll() {
+            return List.of();
+        }
+
+        @Override
+        public List<ModelProvider> listEnabled() {
+            return List.of();
+        }
+
+        @Override
+        public void clearDefaultModel() {
+        }
+
+        @Override
+        public void deleteByModelKey(String modelKey) {
         }
     }
 

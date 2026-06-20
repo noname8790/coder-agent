@@ -6,6 +6,7 @@ import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunCase;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunDraftCase;
 import cn.noname.coder.agent.cases.agent.IQueryRunTraceCase;
+import cn.noname.coder.agent.cases.agent.IRunChangeCase;
 import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,6 +48,8 @@ class AgentRunControllerTest {
     private IQueryRunTraceCase queryRunTraceCase;
     @MockBean
     private ICancelAgentRunCase cancelAgentRunCase;
+    @MockBean
+    private IRunChangeCase runChangeCase;
 
     @Test
     void shouldCreateRunGivenValidRequest() throws Exception {

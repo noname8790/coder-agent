@@ -27,7 +27,7 @@ public class GitCommitTool implements LocalTool {
             return new ToolResult(CallStatus.REJECTED, "message 参数不能为空", "", 1, "INVALID_ARGUMENT");
         }
         try {
-            var result = GitToolSupport.git(workspace, Duration.ofSeconds(60), "commit", "-m", message);
+            var result = GitToolSupport.git(workspace, Duration.ofSeconds(120), "commit", "-m", message);
             return new ToolResult(result.status(), result.output(), result.output(), result.exitCode(), result.errorMessage());
         } catch (Exception e) {
             return new ToolResult(CallStatus.FAILED, "git_commit 执行失败: " + e.getMessage(), "", 1, e.getMessage());

@@ -17,6 +17,10 @@
         </dependency>
         <dependency>
             <groupId>cn.noname</groupId>
+            <artifactId>coder-agent-domain</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.noname</groupId>
             <artifactId>coder-agent-api</artifactId>
         </dependency>
         <dependency>

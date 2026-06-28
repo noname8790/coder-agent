@@ -17,3 +17,19 @@
 - **WHEN** 文件大小在摘要预算内
 - **THEN** 系统 MUST 生成 FILE_MEMORY
 - **AND** MUST 写入 hash 以支持后续 freshness 校验
+
+### Requirement: 内部摘要不得保存长篇可见回复或源码全文
+系统 MUST 在任务结束、文件读取和文件变更后生成用于系统内部的结构化摘要。该摘要 MUST 优先由当前任务模型生成，模型不可用或输出不合规时 MUST 回退规则摘要。内部摘要 MUST NOT 直接保存用户可见最终回复全文、文件全文或变更后源码全文。
+
+#### Scenario: 任务结束生成内部上下文摘要
+- **GIVEN** Agent 完成一次长回复任务
+- **WHEN** 系统写入 RUN_SUMMARY
+- **THEN** 系统 MUST 保存用户目标、完成事项、涉及文件、验证结果、后续事项和风险等结构化字段
+- **AND** MUST NOT 直接保存完整 finalAnswer 原文
+- **AND** 后续同一会话的旧消息压缩 MUST 优先使用该 RUN_SUMMARY 进入 `<context>`
+
+#### Scenario: 文件变更生成内部记忆摘要
+- **GIVEN** Agent 使用写入、覆盖、补丁或删除工具修改文件
+- **WHEN** 系统写入 TOOL_EDIT 记忆
+- **THEN** 系统 MUST 保存 path、change_type、hash、summary、verification 和 risk 等结构化字段
+- **AND** MUST NOT 直接保存变更后源码全文

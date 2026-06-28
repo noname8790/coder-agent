@@ -1,6 +1,6 @@
 [package]
 name = "coder-agent-client"
-version = "0.3.0"
+version = "1.5.0"
 description = "coder-agent desktop client"
 authors = ["noname"]
 edition = "2021"

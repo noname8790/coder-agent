@@ -71,6 +71,11 @@ export function createApi(baseUrl: string) {
       }),
     deleteConversation: (conversationId: string) =>
       request<Conversation>(baseUrl, `/api/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" }),
+    updateConversation: (conversationId: string, title: string) =>
+      request<Conversation>(baseUrl, `/api/conversations/${encodeURIComponent(conversationId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title })
+      }),
     listMessages: (conversationId: string) =>
       request<ConversationMessage[]>(baseUrl, `/api/conversations/${encodeURIComponent(conversationId)}/messages`),
     updateMessage: (conversationId: string, messageId: string, content: string) =>

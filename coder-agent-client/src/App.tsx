@@ -40,6 +40,8 @@ import type {
   ToolApproval,
   Workspace
 } from "./api/types";
+import { MarkdownMessage } from "./components/MarkdownMessage";
+import { shouldRetitleConversation, taskTitle } from "./conversationTitle";
 import { useSseRunEvents } from "./hooks/useSseRunEvents";
 import {
   applyRunEventToTransientMessage,
@@ -114,148 +116,15 @@ function terminalLine(status: string, reason?: string) {
   }
   return "";
 }
-function terminalParts(content: string, terminal?: string) {
-  const markers = ["\n\n???", "\n\n?????", "\n\n????:"];
-  const matchedMarker = markers.find((marker) => content.includes(marker));
-  let body = content;
-  let terminalText = terminal || "";
-  if (matchedMarker) {
-    const markerStart = content.lastIndexOf(matchedMarker);
-    body = content.slice(0, markerStart);
-    terminalText = terminalText || content.slice(markerStart + 2);
-  }
-  return { body, terminalText };
+
+function formatLimitValue(value?: number, fallback = 0) {
+  return value == null ? fallback : value;
 }
 
-function markdownInline(text: string, keyPrefix: string) {
-  const parts: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>);
-    }
-    const token = match[0];
-    if (token.startsWith("**")) {
-      parts.push(<strong key={`${keyPrefix}-b-${match.index}`}>{token.slice(2, -2)}</strong>);
-    } else {
-      parts.push(<code key={`${keyPrefix}-c-${match.index}`}>{token.slice(1, -1)}</code>);
-    }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex)}</span>);
-  }
-  return parts.length > 0 ? parts : text;
+function formatTokenK(tokens?: number) {
+  const value = tokens || 0;
+  return value >= 1000 ? `${Math.round(value / 100) / 10}K` : String(value);
 }
-
-function normalizeMarkdownBody(body: string) {
-  return body
-    .split(/(```[\s\S]*?```)/g)
-    .map((part) => {
-      if (part.startsWith("```")) {
-        return part;
-      }
-      const withHeadingBreaks = part
-        .replace(/([^\n])(\#{1,6}\s*\S)/g, "$1\n\n$2")
-        .replace(/^(\#{1,6})(\S)/gm, "$1 $2");
-      const lines = withHeadingBreaks.split(/\r?\n/);
-      const normalizedLines: string[] = [];
-      for (let index = 0; index < lines.length; index += 1) {
-        if (/^\s*#{1,6}\s*$/.test(lines[index])) {
-          while (index + 1 < lines.length && !lines[index + 1].trim()) {
-            index += 1;
-          }
-          continue;
-        }
-        normalizedLines.push(lines[index]);
-      }
-      return normalizedLines.join("\n");
-    })
-    .join("");
-}
-
-function MarkdownMessage({ content, terminal }: { content: string; terminal?: string }) {
-  const { body, terminalText } = terminalParts(content, terminal);
-  const normalizedBody = normalizeMarkdownBody(body);
-  const lines = normalizedBody.split(/\r?\n/);
-  const blocks: ReactNode[] = [];
-  let codeBuffer: string[] = [];
-  let inCode = false;
-
-  function flushCode(index: number) {
-    if (codeBuffer.length > 0) {
-      blocks.push(
-        <pre className="markdown-code" key={`code-${index}`}>
-          <code>{codeBuffer.join("\n")}</code>
-        </pre>
-      );
-      codeBuffer = [];
-    }
-  }
-
-  lines.forEach((line, index) => {
-    if (line.trim().startsWith("```")) {
-      if (inCode) {
-        flushCode(index);
-        inCode = false;
-      } else {
-        inCode = true;
-      }
-      return;
-    }
-    if (inCode) {
-      codeBuffer.push(line);
-      return;
-    }
-    if (!line.trim()) {
-      blocks.push(<div className="markdown-gap" key={`gap-${index}`} />);
-      return;
-    }
-    const trimmedLine = line.trim();
-    if (trimmedLine === THINKING_TEXT || trimmedLine === "\u601d\u8003\u4e2d...") {
-      blocks.push(
-        <p className="markdown-thinking" key={`thinking-${index}`}>
-          {line}
-        </p>
-      );
-      return;
-    }
-    const heading = /^(#{1,6})\s*(.+)$/.exec(line);
-    if (heading) {
-      const Tag = (`h${Math.min(heading[1].length + 2, 5)}` as keyof JSX.IntrinsicElements);
-      blocks.push(<Tag key={`h-${index}`}>{markdownInline(heading[2], `h-${index}`)}</Tag>);
-      return;
-    }
-    const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
-    if (bullet) {
-      blocks.push(
-        <p className="markdown-list" key={`li-${index}`}>
-          <span className="markdown-list-marker" aria-hidden="true">
-            -
-          </span>
-          <span>{markdownInline(bullet[1], `li-${index}`)}</span>
-        </p>
-      );
-      return;
-    }
-    blocks.push(<p key={`p-${index}`}>{markdownInline(line, `p-${index}`)}</p>);
-  });
-  flushCode(lines.length + 1);
-
-  return (
-    <div className="markdown-message">
-      {blocks}
-      {terminalText ? (
-        <p className="terminal-line">
-          <strong>{terminalText}</strong>
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function PermissionIcon({ level }: { level: PermissionLevel }) {
   if (level.code === "READ_ONLY") {
     return <BookOpen size={18} />;
@@ -413,6 +282,7 @@ export function App() {
     budget: {}
   });
   const [editingModelKey, setEditingModelKey] = useState("");
+  const [modelApiKeyTouched, setModelApiKeyTouched] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<ToolApproval[]>([]);
   const [task, setTask] = useState("");
   const [workspaceForm, setWorkspaceForm] = useState({ workspaceKey: "", rootPath: "" });
@@ -433,6 +303,7 @@ export function App() {
   const appliedConversationDefaultsRef = useRef("");
   const processedSseEventIdsRef = useRef<Set<string>>(new Set());
   const streamCallNoByRunRef = useRef<Record<string, string>>({});
+  const settingsScrollTopRef = useRef<number | null>(null);
   const api = useMemo(() => createApi(settings.baseUrl), [settings.baseUrl]);
   const sse = useSseRunEvents(settings.baseUrl, activeRunId);
   const selectedPermission = permissionLevels.find((item) => item.code === permissionLevel);
@@ -472,6 +343,11 @@ export function App() {
       .reverse()
       .find((message) => !message.transient && message.visibilityStatus !== "ROLLED_BACK")?.messageId || "";
   }, [displayMessages]);
+  const latestEditableUserMessageId = useMemo(() => {
+    return [...displayMessages]
+      .reverse()
+      .find((message) => message.role === "USER" && !message.transient && message.visibilityStatus !== "ROLLED_BACK")?.messageId || "";
+  }, [displayMessages]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -508,6 +384,22 @@ export function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }, []);
 
+  function openModelSettings() {
+    settingsScrollTopRef.current = conversationSurfaceRef.current?.scrollTop ?? null;
+    setView("model-settings");
+  }
+
+  function closeModelSettings() {
+    setView("chat");
+    window.requestAnimationFrame(() => {
+      const surface = conversationSurfaceRef.current;
+      if (surface && settingsScrollTopRef.current != null) {
+        surface.scrollTop = settingsScrollTopRef.current;
+      }
+      settingsScrollTopRef.current = null;
+    });
+  }
+
   const refreshAll = useCallback(async () => {
     setConnection("checking");
     try {
@@ -538,6 +430,17 @@ export function App() {
       setConnection("offline");
       setBackendMessage(error instanceof Error ? error.message : "后端不可用");
     }
+  }, [api]);
+
+  const refreshModelProviders = useCallback(async () => {
+    const providerData = await api.listModelProviders(true);
+    const providers = providerData.models || [];
+    setModelProviders(providers);
+    setModel((current) =>
+      providers.some((provider) => provider.modelKey === current)
+        ? current
+        : providers.find((provider) => provider.defaultModel)?.modelKey || providers[0]?.modelKey || ""
+    );
   }, [api]);
 
   const refreshConversations = useCallback(async () => {
@@ -958,7 +861,7 @@ export function App() {
       return;
     }
     if (!model) {
-      setView("model-settings");
+      openModelSettings();
       setNotice("请先配置并启用模型");
       return;
     }
@@ -966,7 +869,7 @@ export function App() {
     try {
       const created = await api.createConversation({
         workspaceKey: selectedWorkspace,
-        title: currentWorkspace?.workspaceKey ? `${currentWorkspace.workspaceKey} 新对话` : "新对话",
+        title: "新对话",
         defaultModel: model,
         lastPermissionLevel: permissionLevel
       });
@@ -1064,7 +967,10 @@ export function App() {
     }
     setBusy(true);
     try {
-      await api.rollbackCheckpoint(selectedConversation, message.messageId);
+      const result = await api.rollbackCheckpoint(selectedConversation, message.messageId);
+      if (result.status !== "ROLLED_BACK") {
+        throw new Error(result.message || "检查点未还原");
+      }
       await refreshMessages();
       await refreshConversations();
       setNotice("已还原到该检查点");
@@ -1118,7 +1024,7 @@ export function App() {
       return;
     }
     if (!model) {
-      setView("model-settings");
+      openModelSettings();
       setNotice("请先配置并启用模型");
       return;
     }
@@ -1174,7 +1080,7 @@ export function App() {
       return;
     }
     if (!model) {
-      setView("model-settings");
+      openModelSettings();
       setNotice("请先配置并启用模型");
       return;
     }
@@ -1185,12 +1091,20 @@ export function App() {
       if (!conversationId) {
         const conversation = await api.createConversation({
           workspaceKey: selectedWorkspace,
-          title: submittedTask.slice(0, 28),
+          title: taskTitle(submittedTask),
           defaultModel: model,
           lastPermissionLevel: permissionLevel
         });
         conversationId = conversation.conversationId;
         setSelectedConversation(conversationId);
+      }
+      const shouldUpdateTitle =
+        !!conversationId && shouldRetitleConversation(currentConversation, messages, selectedWorkspace);
+      if (shouldUpdateTitle) {
+        const updatedConversation = await api.updateConversation(conversationId, taskTitle(submittedTask));
+        setConversations((current) =>
+          current.map((item) => (item.conversationId === updatedConversation.conversationId ? updatedConversation : item))
+        );
       }
       const run = await api.createRun({
         workspaceKey: selectedWorkspace,
@@ -1266,12 +1180,13 @@ export function App() {
 
   function editModelProvider(provider: ModelProvider) {
     setEditingModelKey(provider.modelKey);
+    setModelApiKeyTouched(false);
     setModelForm({
       modelKey: provider.modelKey,
       displayName: provider.displayName,
       provider: provider.provider,
       baseUrl: provider.baseUrl,
-      apiKey: "",
+      apiKey: provider.apiKeyMasked || "",
       modelName: provider.modelName,
       endpointType: provider.endpointType,
       timeoutSeconds: provider.timeoutSeconds || 120,
@@ -1281,7 +1196,7 @@ export function App() {
       defaultModel: provider.defaultModel,
       budget: provider.budget || {}
     });
-    setView("model-settings");
+    openModelSettings();
   }
 
   async function saveModelProvider() {
@@ -1291,13 +1206,15 @@ export function App() {
     }
     setBusy(true);
     try {
+      const payload = editingModelKey && !modelApiKeyTouched ? { ...modelForm, apiKey: "" } : modelForm;
       if (editingModelKey) {
-        await api.updateModelProvider(editingModelKey, modelForm);
+        await api.updateModelProvider(editingModelKey, payload);
       } else {
-        await api.createModelProvider(modelForm);
+        await api.createModelProvider(payload);
       }
-      await refreshAll();
+      await refreshModelProviders();
       setEditingModelKey("");
+      setModelApiKeyTouched(false);
       setModelForm({ ...modelForm, modelKey: "", displayName: "", apiKey: "", modelName: "" });
       setNotice("模型配置已保存");
     } catch (error) {
@@ -1314,7 +1231,7 @@ export function App() {
     setBusy(true);
     try {
       await api.deleteModelProvider(provider.modelKey);
-      await refreshAll();
+      await refreshModelProviders();
       setNotice("模型配置已删除");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "模型配置删除失败");
@@ -1355,6 +1272,10 @@ function terminalForMessage(message: ConversationMessage) {
           : message.failureReason;
     return terminalLine(status || "", reason);
   }
+
+  const contextTokenUsed = activeRun?.finalContextTokens ?? 0;
+  const contextTokenMax = 128000;
+  const contextTokenPercent = Math.max(0, Math.min(100, (contextTokenUsed / contextTokenMax) * 100));
 
   return (
     <div className="app-shell">
@@ -1453,7 +1374,7 @@ function terminalForMessage(message: ConversationMessage) {
           </div>
         </section>
 
-        <button className="settings-link" onClick={() => setView(view === "model-settings" ? "chat" : "model-settings")}>
+        <button className="settings-link" onClick={() => (view === "model-settings" ? closeModelSettings() : openModelSettings())}>
           <Settings size={17} />
           模型配置
         </button>
@@ -1474,6 +1395,9 @@ function terminalForMessage(message: ConversationMessage) {
 
         {view === "model-settings" ? (
           <section className="model-settings-view">
+            <button className="close-settings" onClick={closeModelSettings} title="关闭模型配置">
+              <X size={18} />
+            </button>
             <div className="settings-heading">
               <h2>模型配置</h2>
               <p>保存 OpenAI-compatible 模型配置后，对话输入区会自动刷新可选模型。</p>
@@ -1489,7 +1413,15 @@ function terminalForMessage(message: ConversationMessage) {
                 <input value={modelForm.baseUrl} onChange={(event) => setModelForm({ ...modelForm, baseUrl: event.target.value })} />
               </ConfigField>
               <ConfigField title="API Key" description="保存时写入后端数据库，查询列表只显示脱敏值。">
-                <input type="password" value={modelForm.apiKey || ""} onChange={(event) => setModelForm({ ...modelForm, apiKey: event.target.value })} />
+                <input
+                  type="text"
+                  value={modelForm.apiKey || ""}
+                  placeholder="API Key"
+                  onChange={(event) => {
+                    setModelApiKeyTouched(true);
+                    setModelForm({ ...modelForm, apiKey: event.target.value });
+                  }}
+                />
               </ConfigField>
               <ConfigField title="Model Name" description="供应商实际模型名。">
                 <input value={modelForm.modelName} onChange={(event) => setModelForm({ ...modelForm, modelName: event.target.value })} />
@@ -1523,7 +1455,13 @@ function terminalForMessage(message: ConversationMessage) {
                 {editingModelKey ? "保存修改" : "新增模型"}
               </button>
               {editingModelKey && (
-                <button onClick={() => setEditingModelKey("")}>
+                <button
+                  onClick={() => {
+                    setEditingModelKey("");
+                    setModelApiKeyTouched(false);
+                    setModelForm({ ...modelForm, modelKey: "", displayName: "", apiKey: "", modelName: "" });
+                  }}
+                >
                   <X size={16} />
                   取消编辑
                 </button>
@@ -1575,10 +1513,10 @@ function terminalForMessage(message: ConversationMessage) {
                 return (
                   <div className={`message-block ${message.role.toLowerCase()}`} key={message.messageId}>
                     <div className="message-content-stack">
-                    <article className={`message ${message.role.toLowerCase()} ${message.visibilityStatus === "ROLLED_BACK" ? "rolled-back" : ""}`}>
+                    <article className={`message ${message.role.toLowerCase()} ${message.visibilityStatus === "ROLLED_BACK" ? "rolled-back" : ""} ${editingMessageId === message.messageId ? "editing" : ""}`}>
                       {!message.transient && (
                         <div className={`message-actions side ${message.role === "USER" ? "left" : "right"}`}>
-                          {message.role === "USER" && (
+                          {message.role === "USER" && message.messageId === latestEditableUserMessageId && (
                             <button
                               title="修改消息并重新运行"
                               onClick={() => {
@@ -1786,13 +1724,6 @@ function terminalForMessage(message: ConversationMessage) {
               onChange={(event) => saveSettings({ ...settings, jarPath: event.target.value })}
             />
           </label>
-          <label>
-            WorkDir
-            <input
-              value={settings.workDir}
-              onChange={(event) => saveSettings({ ...settings, workDir: event.target.value })}
-            />
-          </label>
           <p className="hint">{backendMessage}</p>
           <p className="hint">客户端会自动启动、检测并在退出时停止由本客户端启动的后端服务。</p>
         </section>
@@ -1807,13 +1738,21 @@ function terminalForMessage(message: ConversationMessage) {
             <span>{statusLabel(activeRun?.status)}</span>
           </div>
           <div className="metrics">
-            <span>步骤 {activeRun?.stepCount ?? 0}</span>
-            <span>模型 {activeRun?.modelCallCount ?? 0}</span>
-            <span>工具 {activeRun?.toolCallCount ?? 0}</span>
-            <span>上下文 {activeRun?.finalContextTokens ?? 0}</span>
+            <span>步骤 {formatLimitValue(activeRun?.stepCount)}/{formatLimitValue(activeRun?.maxSteps, 50)}</span>
+            <span>模型 {formatLimitValue(activeRun?.modelCallCount)}/{formatLimitValue(activeRun?.maxModelCalls, 50)}</span>
+            <span>工具 {formatLimitValue(activeRun?.toolCallCount)}/{formatLimitValue(activeRun?.maxToolCalls, 100)}</span>
             <span>压缩 {activeRun?.contextCompressionRatio ?? 0}</span>
             <span>记忆 {activeRun?.memoryHitCount ?? 0}</span>
-            <span>过期 {activeRun?.staleMemoryCount ?? 0}</span>
+            <span>文件摘要 {activeRun?.selectedFileSummaryCount ?? 0}</span>
+          </div>
+          <div className="token-meter" title={`${contextTokenUsed}/${contextTokenMax}`}>
+            <div className="token-meter-label">
+              <span>上下文 token</span>
+              <strong>{formatTokenK(contextTokenUsed)}/128K - {contextTokenPercent.toFixed(2)}%</strong>
+            </div>
+            <div className="token-meter-track">
+              <span style={{ width: `${contextTokenPercent}%` }} />
+            </div>
           </div>
           {activeRun?.latestContextSnapshotPath && <p className="hint">{activeRun.latestContextSnapshotPath}</p>}
           <div className="two-buttons">
@@ -1826,29 +1765,6 @@ function terminalForMessage(message: ConversationMessage) {
               取消
             </button>
           </div>
-        </section>
-
-        <section className="panel review-panel">
-          <div className="panel-title">
-            <FileDiff size={17} />
-            审查材料
-          </div>
-          <div className="review-grid">
-            <ReviewItem label="变更文件" value={String(activeRun?.changedFileCount ?? 0)} />
-            <ReviewItem label="测试状态" value={activeRun?.testStatus || "NOT_RUN"} />
-            <ReviewItem label="本地分支" value={activeRun?.gitBranch || "-"} />
-            <ReviewItem label="提交" value={activeRun?.commitHash || "-"} />
-          </div>
-          <div className="artifact-list">
-            {(activeRun?.artifacts || []).map((artifact) => (
-              <div className="artifact" key={`${artifact.artifactType}-${artifact.relativePath}`}>
-                <span>{artifact.artifactType}</span>
-                <small>{artifact.relativePath}</small>
-              </div>
-            ))}
-            {(!activeRun?.artifacts || activeRun.artifacts.length === 0) && <p className="empty-small">暂无工件</p>}
-          </div>
-          {activeRun?.finalAnswer && <p className="final-answer">{activeRun.finalAnswer}</p>}
         </section>
       </aside>
 
@@ -1887,15 +1803,6 @@ function terminalForMessage(message: ConversationMessage) {
   );
 }
 
-function ReviewItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="review-item">
-      <span>{label}</span>
-      <strong title={value}>{value}</strong>
-    </div>
-  );
-}
-
 function ConfigField({
   title,
   description,
@@ -1913,3 +1820,4 @@ function ConfigField({
     </label>
   );
 }
+

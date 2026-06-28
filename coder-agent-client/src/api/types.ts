@@ -98,8 +98,11 @@ export type AgentRun = {
   changedFileCount?: number;
   testStatus?: string;
   stepCount?: number;
+  maxSteps?: number;
   modelCallCount?: number;
+  maxModelCalls?: number;
   toolCallCount?: number;
+  maxToolCalls?: number;
   rawContextTokens?: number;
   finalContextTokens?: number;
   contextCompressionRatio?: number;

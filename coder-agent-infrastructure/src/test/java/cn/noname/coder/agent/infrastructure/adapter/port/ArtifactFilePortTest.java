@@ -1,10 +1,10 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.tool.model.valobj.TestCommandReport;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -98,5 +98,46 @@ class ArtifactFilePortTest {
         assertTrue(changedFilesJson.contains("\"patchSnippet\""));
         assertTrue(changedFilesJson.contains("- 1     old"));
         assertTrue(changedFilesJson.contains("+ 1     new"));
+    }
+
+    @Test
+    void shouldWriteOverwriteReviewArtifactsGivenWholeFileContentChanged() throws Exception {
+        ArtifactFilePort port = new ArtifactFilePort();
+        WorkspaceDescriptor workspace = new WorkspaceDescriptor("repo", workspaceRoot);
+        AgentRun run = AgentRun.builder()
+                .runId("run_overwrite")
+                .workspaceKey("repo")
+                .task("覆盖测试文件")
+                .model("test-model")
+                .permissionLevel(AgentPermissionLevel.DEFAULT)
+                .status(AgentRunStatus.SUCCEEDED)
+                .createdAt(LocalDateTime.now())
+                .build();
+        String before = String.join("\n",
+                "package cn.noname.demo;",
+                "",
+                "class PowerCalculatorTest {",
+                "    void oldTest() {}",
+                "}");
+        String after = String.join("\n",
+                "package cn.noname.demo;",
+                "",
+                "class PowerCalculatorTest {",
+                "    void newTest() {}",
+                "    void anotherTest() {}",
+                "}");
+
+        port.writeReviewArtifacts(workspace, run,
+                List.of(new ChangedFile("src/test/java/cn/noname/demo/PowerCalculatorTest.java",
+                        "OVERWRITE", "old", "new", 1, before, after)),
+                List.of());
+
+        String changedFilesJson = Files.readString(workspaceRoot.resolve(".coder/runs/run_overwrite/changed-files.json"));
+        assertTrue(changedFilesJson.contains("\"changeType\" : \"OVERWRITE\""));
+        assertTrue(changedFilesJson.contains("\"addedLines\" : 2"));
+        assertTrue(changedFilesJson.contains("\"deletedLines\" : 1"));
+        assertTrue(changedFilesJson.contains("oldTest"));
+        assertTrue(changedFilesJson.contains("newTest"));
+        assertTrue(changedFilesJson.contains("anotherTest"), changedFilesJson);
     }
 }

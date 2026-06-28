@@ -1,20 +1,21 @@
 package cn.noname.coder.agent.cases.agent;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IRunChangeRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.RunChangeSet;
-import cn.noname.coder.agent.domain.agent.model.entity.RunFileChange;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunChangeSet;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunFileChange;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,9 +95,70 @@ class RunChangeServiceTest {
         assertThat(file).doesNotExist();
     }
 
+    @Test
+    void shouldMergeChangesGivenSameRunRecordedAcrossApprovalResumes() {
+        // Given 同一个 run 在两次审批恢复中分别删除了两个文件
+        AgentRun run = AgentRun.builder()
+                .runId("run_multi_resume")
+                .workspaceKey("demo")
+                .conversationId("conv_1")
+                .build();
+        WorkspaceDescriptor workspace = new WorkspaceDescriptor("demo", tempDir);
+        InMemoryRunChangeRepository changeRepository = new InMemoryRunChangeRepository();
+        IAgentRunRepository runRepository = mock(IAgentRunRepository.class);
+        IWorkspacePort workspacePort = mock(IWorkspacePort.class);
+        IAgentRecordRepository recordRepository = mock(IAgentRecordRepository.class);
+        RunChangeService service = new RunChangeService(changeRepository, runRepository, workspacePort, recordRepository);
+
+        // When 分两次记录同一个 run 的文件删除
+        service.record(workspace, run, List.of(new ChangedFile("src/main/A.java", "DELETE",
+                "before-a", null, 1, "class A {}", "")));
+        service.record(workspace, run, List.of(new ChangedFile("src/test/ATest.java", "DELETE",
+                "before-test", null, 2, "class ATest {}", "")));
+
+        // Then 后一次记录不会覆盖前一次记录
+        assertThat(changeRepository.listFileChanges("run_multi_resume"))
+                .extracting(RunFileChange::getFilePath)
+                .containsExactly("src/main/A.java", "src/test/ATest.java");
+    }
+
+    @Test
+    void shouldSummarizeRecentEightWorkStatusesGivenLongConversation() {
+        // Given 同一会话有 10 个历史变更集
+        AgentRun current = AgentRun.builder()
+                .runId("run_current")
+                .workspaceKey("demo")
+                .conversationId("conv_1")
+                .build();
+        WorkspaceDescriptor workspace = new WorkspaceDescriptor("demo", tempDir);
+        InMemoryRunChangeRepository changeRepository = new InMemoryRunChangeRepository();
+        IAgentRunRepository runRepository = mock(IAgentRunRepository.class);
+        IWorkspacePort workspacePort = mock(IWorkspacePort.class);
+        IAgentRecordRepository recordRepository = mock(IAgentRecordRepository.class);
+        RunChangeService service = new RunChangeService(changeRepository, runRepository, workspacePort, recordRepository);
+        for (int i = 1; i <= 10; i++) {
+            AgentRun run = AgentRun.builder()
+                    .runId("run_" + i)
+                    .workspaceKey("demo")
+                    .conversationId("conv_1")
+                    .build();
+            service.record(workspace, run, List.of(new ChangedFile("src/File" + i + ".java", "MODIFY",
+                    "before", "after", i, "before", "after")));
+        }
+
+        // When 按 context 最近窗口获取 work_status
+        List<String> summaries = service.recentWorkStatusSummaries(current.getConversationId(), current.getRunId(), 8);
+
+        // Then 只保留最近 8 个任务状态摘要
+        assertThat(summaries).hasSize(8);
+        assertThat(summaries.getFirst()).contains("run_10");
+        assertThat(summaries.getLast()).contains("run_3");
+        assertThat(String.join("\n", summaries)).doesNotContain("runId=run_1,", "runId=run_2,");
+    }
+
     private static class InMemoryRunChangeRepository implements IRunChangeRepository {
 
-        private final Map<String, RunChangeSet> changeSets = new HashMap<>();
+        private final Map<String, RunChangeSet> changeSets = new LinkedHashMap<>();
         private final Map<String, List<RunFileChange>> fileChanges = new HashMap<>();
 
         @Override

@@ -1,6 +1,6 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.EmbeddingRequest;
+import cn.noname.coder.agent.domain.model.model.valobj.EmbeddingRequest;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.exception.AppException;
 import okhttp3.mockwebserver.MockResponse;

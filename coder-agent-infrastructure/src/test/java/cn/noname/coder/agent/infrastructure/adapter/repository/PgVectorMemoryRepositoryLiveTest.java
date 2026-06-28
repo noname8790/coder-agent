@@ -47,23 +47,29 @@ class PgVectorMemoryRepositoryLiveTest {
 
             try (var insert = connection.prepareStatement("""
                     INSERT INTO %s
-                    (chunk_id, workspace_key, memory_id, source_type, source_id, content, metadata, embedding)
-                    VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector)
+                    (chunk_id, workspace_key, memory_id, source_type, source_id, file_path,
+                     content_hash, trust_score, freshness_status, content, metadata, embedding)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector)
                     """.formatted(tableName))) {
                 insert.setString(1, "__live_chunk_exact__");
                 insert.setString(2, "__live_ws__");
                 insert.setString(3, "__live_mem_exact__");
                 insert.setString(4, "RUN_SUMMARY");
                 insert.setString(5, exactRunId);
-                insert.setString(6, "live exact chunk");
-                insert.setString(7, "{}");
-                insert.setString(8, vectorLiteral);
+                insert.setString(6, "");
+                insert.setString(7, "hash-exact");
+                insert.setDouble(8, 0.8);
+                insert.setString(9, "FRESH");
+                insert.setString(10, "live exact chunk");
+                insert.setString(11, "{}");
+                insert.setString(12, vectorLiteral);
                 insert.executeUpdate();
 
                 insert.setString(1, "__live_chunk_prefix__");
                 insert.setString(3, "__live_mem_prefix__");
                 insert.setString(5, prefixedRunId + ":summary");
-                insert.setString(6, "live prefix chunk");
+                insert.setString(7, "hash-prefix");
+                insert.setString(10, "live prefix chunk");
                 insert.executeUpdate();
             }
 

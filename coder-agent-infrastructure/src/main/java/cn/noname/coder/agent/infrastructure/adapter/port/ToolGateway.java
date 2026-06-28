@@ -1,13 +1,14 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGovernancePort;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGateway;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGovernancePort;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDefinition;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.infrastructure.tools.GitOperationStrategy;
 import cn.noname.coder.agent.infrastructure.tools.LocalTool;
 import cn.noname.coder.agent.infrastructure.tools.ToolJson;
 import cn.noname.coder.agent.types.enums.CallStatus;
@@ -21,7 +22,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,14 +38,14 @@ public class ToolGateway implements IToolGateway {
 
     @Override
     public List<ToolDefinition> definitions() {
-        return localTools.stream().map(LocalTool::definition).toList();
+        return localTools.stream().map(tool -> tool.descriptor().definition()).toList();
     }
 
     @Override
     public List<ToolDefinition> definitions(AgentRun run, WorkspaceDescriptor workspace) {
         List<ToolDefinition> definitions = localTools.stream()
-                .filter(tool -> canAdvertise(tool.definition().name(), run))
-                .map(LocalTool::definition)
+                .filter(tool -> canAdvertise(tool, run))
+                .map(tool -> tool.descriptor().definition())
                 .toList();
         log.info("组装工具定义 runId={} permissionLevel={} workspaceKey={} tools={}",
                 run.getRunId(), permissionLevel(run), workspace.workspaceKey(),
@@ -103,19 +103,17 @@ public class ToolGateway implements IToolGateway {
         }
     }
 
-    private boolean canAdvertise(String toolName, AgentRun run) {
+    private boolean canAdvertise(LocalTool tool, AgentRun run) {
         if (run == null) {
             return true;
         }
+        String toolName = tool.descriptor().name();
         AgentPermissionLevel permissionLevel = permissionLevel(run);
         if (!permissionLevel.canAdvertise(toolName)) {
             return false;
         }
-        if ("apply_patch".equals(toolName) || "write_file".equals(toolName)) {
-            return permissionLevel.atLeast(AgentPermissionLevel.DEFAULT);
-        }
-        if (Set.of("overwrite_file", "delete_file", "generate_pr_draft", "git_add", "git_commit").contains(toolName)) {
-            return permissionLevel.atLeast(AgentPermissionLevel.DEFAULT);
+        if (!permissionLevel.atLeast(tool.descriptor().requiredPermission())) {
+            return false;
         }
         return true;
     }
@@ -153,19 +151,7 @@ public class ToolGateway implements IToolGateway {
     }
 
     private boolean isGitWriteCommand(String command) {
-        return command.equals("git init")
-                || command.startsWith("git init ")
-                || command.equals("git reset")
-                || command.startsWith("git reset ")
-                || command.equals("git rm")
-                || command.startsWith("git rm ")
-                || command.equals("git clean")
-                || command.startsWith("git clean ")
-                || command.equals("git restore")
-                || command.startsWith("git restore ")
-                || command.startsWith("git checkout -b")
-                || command.startsWith("git add")
-                || command.startsWith("git commit");
+        return GitOperationStrategy.isGitWriteCommand(command);
     }
 
     private void ensureCoderIgnoredIfGitWrite(WorkspaceDescriptor workspace, ToolInvocation invocation) {

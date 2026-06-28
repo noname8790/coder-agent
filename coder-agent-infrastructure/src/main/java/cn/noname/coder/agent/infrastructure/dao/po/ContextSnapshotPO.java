@@ -26,5 +26,6 @@ public class ContextSnapshotPO {
     private Integer selectedFileSummaryCount;
     private Integer selectedRawSnippetCount;
     private String snapshotPath;
+    private String sectionDetailJson;
     private LocalDateTime createdAt;
 }

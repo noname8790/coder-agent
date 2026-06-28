@@ -43,21 +43,35 @@ coder-agent:
     timeout-seconds: ${EMBEDDING_TIMEOUT_SECONDS:120}
   memory:
     enabled: ${MEMORY_ENABLED:false}
-    top-k: ${MEMORY_TOP_K:8}
+    candidate-top-k: ${MEMORY_CANDIDATE_TOP_K:24}
+    selected-top-k: ${MEMORY_SELECTED_TOP_K:8}
+    top-k: ${MEMORY_CANDIDATE_TOP_K:24}
     min-score: ${MEMORY_MIN_SCORE:0.35}
-    max-chunks-per-run: ${MEMORY_MAX_CHUNKS_PER_RUN:20}
+    min-trust-score: ${MEMORY_MIN_TRUST_SCORE:0.65}
+    max-chunks-per-run: ${MEMORY_MAX_CHUNKS_PER_RUN:12}
     max-embedding-calls-per-run: ${MEMORY_MAX_EMBEDDING_CALLS_PER_RUN:8}
-    max-auto-summary-files-per-run: ${MEMORY_MAX_AUTO_SUMMARY_FILES_PER_RUN:6}
-    max-file-bytes-for-summary: ${MEMORY_MAX_FILE_BYTES_FOR_SUMMARY:65536}
+    max-auto-summary-files-per-run: ${MEMORY_MAX_AUTO_SUMMARY_FILES_PER_RUN:12}
+    max-file-bytes-for-summary: ${MEMORY_MAX_FILE_BYTES_FOR_SUMMARY:262144}
+    chunk-max-tokens: ${MEMORY_CHUNK_MAX_TOKENS:1200}
+    chunk-overlap-tokens: ${MEMORY_CHUNK_OVERLAP_TOKENS:120}
   context:
-    max-input-tokens: ${CONTEXT_MAX_INPUT_TOKENS:32000}
+    compression-enabled: ${CONTEXT_COMPRESSION_ENABLED:true}
+    max-context-tokens: ${CONTEXT_MAX_CONTEXT_TOKENS:131072}
+    max-input-tokens: ${CONTEXT_MAX_INPUT_TOKENS:106496}
+    max-output-tokens: ${CONTEXT_MAX_OUTPUT_TOKENS:8192}
+    safety-reserve-tokens: ${CONTEXT_SAFETY_RESERVE_TOKENS:16384}
     system-reserve-tokens: ${CONTEXT_SYSTEM_RESERVE_TOKENS:2000}
-    memory-budget-tokens: ${CONTEXT_MEMORY_BUDGET_TOKENS:6000}
-    file-summary-budget-tokens: ${CONTEXT_FILE_SUMMARY_BUDGET_TOKENS:6000}
-    raw-snippet-budget-tokens: ${CONTEXT_RAW_SNIPPET_BUDGET_TOKENS:8000}
-    tool-result-budget-tokens: ${CONTEXT_TOOL_RESULT_BUDGET_TOKENS:4000}
-    recent-message-budget-tokens: ${CONTEXT_RECENT_MESSAGE_BUDGET_TOKENS:4000}
-    output-reserve-tokens: ${CONTEXT_OUTPUT_RESERVE_TOKENS:4000}
+    prefix-budget-tokens: ${CONTEXT_PREFIX_BUDGET_TOKENS:8192}
+    working-memory-budget-tokens: ${CONTEXT_WORKING_MEMORY_BUDGET_TOKENS:12288}
+    memory-budget-tokens: ${CONTEXT_MEMORY_BUDGET_TOKENS:12288}
+    file-summary-budget-tokens: ${CONTEXT_FILE_SUMMARY_BUDGET_TOKENS:16384}
+    raw-snippet-budget-tokens: ${CONTEXT_RAW_SNIPPET_BUDGET_TOKENS:32768}
+    tool-result-budget-tokens: ${CONTEXT_TOOL_RESULT_BUDGET_TOKENS:20480}
+    recent-message-budget-tokens: ${CONTEXT_RECENT_MESSAGE_BUDGET_TOKENS:16384}
+    run-trace-budget-tokens: ${CONTEXT_RUN_TRACE_BUDGET_TOKENS:8192}
+    output-reserve-tokens: ${CONTEXT_MAX_OUTPUT_TOKENS:8192}
+    compression-max-model-calls-per-run: ${CONTEXT_COMPRESSION_MAX_MODEL_CALLS_PER_RUN:2}
+    compression-max-tokens-per-run: ${CONTEXT_COMPRESSION_MAX_TOKENS_PER_RUN:8192}
   tool-approval:
     enabled: ${TOOL_APPROVAL_ENABLED:true}
     timeout-seconds: ${TOOL_APPROVAL_TIMEOUT_SECONDS:600}
@@ -66,9 +80,9 @@ coder-agent:
     case-timeout-seconds: ${EVAL_CASE_TIMEOUT_SECONDS:600}
     max-concurrent-cases: ${EVAL_MAX_CONCURRENT_CASES:1}
   budget:
-    max-steps: ${AGENT_MAX_STEPS:25}
-    max-model-calls: ${AGENT_MAX_MODEL_CALLS:25}
-    max-tool-calls: ${AGENT_MAX_TOOL_CALLS:50}
+    max-steps: ${AGENT_MAX_STEPS:50}
+    max-model-calls: ${AGENT_MAX_MODEL_CALLS:50}
+    max-tool-calls: ${AGENT_MAX_TOOL_CALLS:100}
     timeout-seconds: ${AGENT_TIMEOUT_SECONDS:300}
     max-concurrent-runs: ${AGENT_MAX_CONCURRENT_RUNS:2}
   workspaces:

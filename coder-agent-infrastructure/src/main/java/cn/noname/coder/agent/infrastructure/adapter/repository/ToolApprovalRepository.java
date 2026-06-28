@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ToolApprovalRequest;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolApprovalRequest;
 import cn.noname.coder.agent.infrastructure.dao.IToolApprovalRequestDao;
 import cn.noname.coder.agent.infrastructure.dao.po.ToolApprovalRequestPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;

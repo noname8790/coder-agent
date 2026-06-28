@@ -1,9 +1,9 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IWorkspaceRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.Workspace;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.extern.slf4j.Slf4j;

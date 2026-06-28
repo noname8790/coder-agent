@@ -5,12 +5,12 @@ import cn.noname.coder.agent.api.dto.RunArtifactDTO;
 import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
 import cn.noname.coder.agent.cases.agent.IQueryAgentRunCase;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
 import cn.noname.coder.agent.types.enums.ArtifactType;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -59,8 +59,11 @@ public class QueryAgentRunCaseImpl implements IQueryAgentRunCase {
                 changedFileCount,
                 testStatus,
                 run.getStepCount(),
+                run.getMaxSteps(),
                 run.getModelCallCount(),
+                run.getMaxModelCalls(),
                 run.getToolCallCount(),
+                run.getMaxToolCalls(),
                 latestSnapshot == null ? null : latestSnapshot.getRawEstimatedTokens(),
                 latestSnapshot == null ? null : latestSnapshot.getFinalEstimatedTokens(),
                 latestSnapshot == null ? null : latestSnapshot.getCompressionRatio(),

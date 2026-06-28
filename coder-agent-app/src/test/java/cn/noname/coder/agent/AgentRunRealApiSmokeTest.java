@@ -1,7 +1,7 @@
 package cn.noname.coder.agent;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

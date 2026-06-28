@@ -1,10 +1,10 @@
 package cn.noname.coder.agent.infrastructure.tools;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDefinition;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -56,10 +56,10 @@ public class ApplyPatchTool implements LocalTool {
             }
             TextFileSupport.assertTextFile(file);
             String before = TextFileSupport.read(file);
-            if (!before.contains(search)) {
+            String after = replaceOncePreservingLineEndings(before, search, replace);
+            if (after == null) {
                 return rejected("search 内容未在文件中找到：" + relativePath, "PATCH_NOT_MATCHED");
             }
-            String after = before.replace(search, replace);
             Files.writeString(file, after, StandardCharsets.UTF_8);
             ChangedFile changed = new ChangedFile(relativePath.replace('\\', '/'), "MODIFY",
                     TextFileSupport.sha256(before), TextFileSupport.sha256(after), null, before, after);
@@ -78,5 +78,23 @@ public class ApplyPatchTool implements LocalTool {
 
     private ToolResult rejected(String summary, String code) {
         return new ToolResult(CallStatus.REJECTED, summary, "", 1, code);
+    }
+
+    private String replaceOncePreservingLineEndings(String before, String search, String replace) {
+        if (before.contains(search)) {
+            return before.replace(search, replace);
+        }
+        String lineEnding = before.contains("\r\n") ? "\r\n" : "\n";
+        String normalizedBefore = normalizeLineEndings(before);
+        String normalizedSearch = normalizeLineEndings(search);
+        if (!normalizedBefore.contains(normalizedSearch)) {
+            return null;
+        }
+        String normalizedAfter = normalizedBefore.replace(normalizedSearch, normalizeLineEndings(replace));
+        return "\r\n".equals(lineEnding) ? normalizedAfter.replace("\n", "\r\n") : normalizedAfter;
+    }
+
+    private String normalizeLineEndings(String content) {
+        return content.replace("\r\n", "\n").replace("\r", "\n");
     }
 }

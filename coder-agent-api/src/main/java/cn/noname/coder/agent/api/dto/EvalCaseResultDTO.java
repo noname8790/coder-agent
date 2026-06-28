@@ -14,6 +14,12 @@ public record EvalCaseResultDTO(
         String failureCategory,
         Double contextCompressionRatio,
         Integer memoryHitCount,
+        Double retainedAnchorRate,
+        Double memoryRecallPrecision,
+        Double memoryRecallAtK,
+        Double staleBlockRate,
+        Integer repeatedReadCount,
+        Long tokenCost,
         String resultPath
 ) {
 }

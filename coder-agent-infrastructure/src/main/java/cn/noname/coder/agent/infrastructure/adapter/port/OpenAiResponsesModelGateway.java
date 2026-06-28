@@ -1,13 +1,13 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelGateway;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelProtocolMessage;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelResponse;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelGateway;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelProtocolMessage;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelRequest;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelResponse;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDefinition;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
 import cn.noname.coder.agent.infrastructure.gateway.OpenAiHttpGatewayService;
 import cn.noname.coder.agent.types.exception.AppException;
 import com.fasterxml.jackson.databind.JsonNode;

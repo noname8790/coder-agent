@@ -20,6 +20,8 @@ public class MemoryRecallPO {
     private Double minScore;
     private Integer hitCount;
     private Integer selectedCount;
+    private Integer candidateCount;
+    private Integer filteredCount;
     private String detailJson;
     private LocalDateTime createdAt;
 }

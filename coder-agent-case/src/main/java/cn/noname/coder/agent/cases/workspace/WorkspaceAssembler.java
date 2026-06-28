@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.cases.workspace;
 
 import cn.noname.coder.agent.api.dto.WorkspaceResponseDTO;
-import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
+import cn.noname.coder.agent.domain.workspace.model.entity.Workspace;
 
 /**
  * workspace DTO 组装器。

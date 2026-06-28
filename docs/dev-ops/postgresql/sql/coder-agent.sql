@@ -12,7 +12,7 @@
  Target Server Version : 150004
  File Encoding         : 65001
 
- Date: 14/06/2026 21:16:27
+ Date: 29/06/2026 00:17:13
 */
 
 
@@ -62,7 +62,8 @@ CREATE TABLE "public"."coder_agent_memory_chunk" (
   "metadata" jsonb,
   "embedding" "public"."vector" NOT NULL,
   "created_at" timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updated_at" timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  "updated_at" timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "trust_score" numeric(8,4) NOT NULL DEFAULT 0.8000
 )
 ;
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."chunk_id" IS '向量分片ID';
@@ -70,14 +71,15 @@ COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."workspace_key" IS '工作
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."memory_id" IS 'MySQL 记忆元数据ID';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."source_type" IS '记忆来源类型';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."source_id" IS '记忆来源ID';
-COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."file_path" IS '关联文件路径';
-COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."content_hash" IS '关联内容哈希';
-COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."freshness_status" IS '新鲜度状态';
+COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."file_path" IS 'related file path';
+COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."content_hash" IS 'related content hash';
+COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."freshness_status" IS 'freshness status';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."content" IS '用于召回的文本内容';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."metadata" IS '向量分片元数据';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."embedding" IS 'embedding 向量';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."created_at" IS '创建时间';
 COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."updated_at" IS '更新时间';
+COMMENT ON COLUMN "public"."coder_agent_memory_chunk"."trust_score" IS 'trust score';
 COMMENT ON TABLE "public"."coder_agent_memory_chunk" IS 'workspace 向量记忆分片';
 
 -- ----------------------------
@@ -400,7 +402,7 @@ CREATE OR REPLACE FUNCTION "public"."vector_typmod_in"(_cstring)
 -- ----------------------------
 ALTER SEQUENCE "public"."coder_agent_memory_chunk_id_seq"
 OWNED BY "public"."coder_agent_memory_chunk"."id";
-SELECT setval('"public"."coder_agent_memory_chunk_id_seq"', 102, true);
+SELECT setval('"public"."coder_agent_memory_chunk_id_seq"', 427, true);
 
 -- ----------------------------
 -- Indexes structure for table coder_agent_memory_chunk
@@ -421,6 +423,11 @@ CREATE INDEX "idx_memory_chunk_memory" ON "public"."coder_agent_memory_chunk" US
 CREATE INDEX "idx_memory_chunk_source" ON "public"."coder_agent_memory_chunk" USING btree (
   "source_type" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
   "source_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+CREATE INDEX "idx_memory_chunk_trust" ON "public"."coder_agent_memory_chunk" USING btree (
+  "workspace_key" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "freshness_status" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "trust_score" "pg_catalog"."numeric_ops" ASC NULLS LAST
 );
 CREATE INDEX "idx_memory_chunk_workspace" ON "public"."coder_agent_memory_chunk" USING btree (
   "workspace_key" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST

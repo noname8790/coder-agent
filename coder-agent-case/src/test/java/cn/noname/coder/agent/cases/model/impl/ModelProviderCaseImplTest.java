@@ -1,10 +1,10 @@
 package cn.noname.coder.agent.cases.model.impl;
 
 import cn.noname.coder.agent.api.dto.ModelProviderRequestDTO;
-import cn.noname.coder.agent.domain.agent.adapter.port.IApiKeyCipherPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IApiKeyCipherPort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
@@ -99,6 +99,44 @@ class ModelProviderCaseImplTest {
         assertEquals("STREAMING_REQUIRED", ex.getCode());
     }
 
+    @Test
+    void shouldUpdateModelKeyGivenModelKeyChanged() {
+        // Given 已存在的模型配置
+        InMemoryModelProviderRepository repository = new InMemoryModelProviderRepository();
+        ModelProviderCaseImpl useCase = newUseCase(repository, new StubRunRepository(0));
+        useCase.create(request("qwen3.6-plus", "Qwen Plus", false));
+
+        // When 修改 Model Key
+        ModelProviderRequestDTO update = request("qwen-max", "Qwen Max", false);
+        var response = useCase.update("qwen3.6-plus", update);
+
+        // Then 新 key 生效，旧 key 不再可查
+        assertAll(
+                () -> assertEquals("qwen-max", response.modelKey()),
+                () -> assertTrue(repository.findByModelKey("qwen3.6-plus").isEmpty()),
+                () -> assertTrue(repository.findByModelKey("qwen-max").isPresent())
+        );
+    }
+
+    @Test
+    void shouldKeepApiKeyCipherGivenUpdateWithoutApiKey() {
+        // Given 已存在的模型配置
+        InMemoryModelProviderRepository repository = new InMemoryModelProviderRepository();
+        ModelProviderCaseImpl useCase = newUseCase(repository, new StubRunRepository(0));
+        useCase.create(request("glm-5", "GLM", false));
+        String oldCipher = repository.findByModelKey("glm-5").orElseThrow().getApiKeyCipher();
+
+        // When 更新展示名但不提交 API Key
+        ModelProviderRequestDTO update = new ModelProviderRequestDTO(
+                "glm-5", "GLM 4.7", "openai-compatible", "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "", "glm-4.7", "chat-completions", 0.2, 180,
+                true, true, false, null);
+        useCase.update("glm-5", update);
+
+        // Then 密文保持不变
+        assertEquals(oldCipher, repository.findByModelKey("glm-5").orElseThrow().getApiKeyCipher());
+    }
+
     private ModelProviderCaseImpl newUseCase(InMemoryModelProviderRepository repository, IAgentRunRepository runRepository) {
         return new ModelProviderCaseImpl(repository, runRepository, new TestApiKeyCipherPort());
     }
@@ -112,14 +150,19 @@ class ModelProviderCaseImplTest {
 
     static class InMemoryModelProviderRepository implements IModelProviderRepository {
         private final Map<String, ModelProvider> providers = new LinkedHashMap<>();
+        private long nextId = 1L;
 
         @Override
         public void save(ModelProvider provider) {
+            if (provider.getId() == null) {
+                provider.setId(nextId++);
+            }
             providers.put(provider.getModelKey(), provider);
         }
 
         @Override
         public void update(ModelProvider provider) {
+            providers.entrySet().removeIf(entry -> provider.getId() != null && provider.getId().equals(entry.getValue().getId()));
             providers.put(provider.getModelKey(), provider);
         }
 

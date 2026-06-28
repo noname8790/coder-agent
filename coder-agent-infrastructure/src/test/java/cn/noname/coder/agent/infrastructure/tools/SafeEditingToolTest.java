@@ -1,6 +1,6 @@
 package cn.noname.coder.agent.infrastructure.tools;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.infrastructure.adapter.port.WorkspacePort;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.CallStatus;
@@ -31,6 +31,27 @@ class SafeEditingToolTest {
         assertEquals(CallStatus.SUCCESS, result.status());
         assertEquals("class App { String name = \"new\"; }", Files.readString(file));
         assertEquals("MODIFY", result.changedFiles().getFirst().changeType());
+    }
+
+    @Test
+    void shouldModifyCrLfFileGivenLfSearchReplace() throws Exception {
+        // Given workspace 内已有 CRLF 换行的文本文件
+        Path file = workspaceRoot.resolve("src/main/java/cn/noname/demo/Calculator.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "class Calculator {\r\n    public int square(int value) {\r\n    return value * value;\r\n}\r\n}");
+        ApplyPatchTool tool = new ApplyPatchTool(new WorkspacePort(new AgentRuntimeProperties()), new ProtectedPathPolicy());
+
+        // When search/replace 参数使用 JSON 常见的 LF 换行
+        String args = """
+                {"path":"src/main/java/cn/noname/demo/Calculator.java","search":"public int square(int value) {\\n    return value * value;\\n}","replace":"public int modulo(int left, int right) {\\n    return left % right;\\n}"}
+                """;
+        var result = tool.execute("run_1", workspace(), args);
+
+        // Then 能匹配并保持原文件 CRLF 风格
+        assertEquals(CallStatus.SUCCESS, result.status());
+        String content = Files.readString(file);
+        assertTrue(content.contains("public int modulo(int left, int right) {\r\n    return left % right;\r\n}"));
+        assertFalse(content.contains("\n    return left % right;\n}"));
     }
 
     @Test

@@ -3,25 +3,26 @@ package cn.noname.coder.agent.cases.conversation.impl;
 import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
+import cn.noname.coder.agent.api.dto.UpdateConversationRequestDTO;
 import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
 import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
 import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IRunChangeRepository;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -92,6 +93,20 @@ public class ConversationCaseImpl implements IConversationCase {
     @Override
     public ConversationResponseDTO query(String conversationId) {
         return toDto(findConversation(conversationId));
+    }
+
+    @Override
+    public ConversationResponseDTO update(String conversationId, UpdateConversationRequestDTO request) {
+        AgentConversation conversation = findConversation(conversationId);
+        String title = request == null ? null : request.title();
+        if (!StringUtils.hasText(title)) {
+            throw new AppException("INVALID_ARGUMENT", "会话标题不能为空");
+        }
+        conversation.setTitle(title.trim());
+        conversation.setUpdatedAt(LocalDateTime.now());
+        conversationRepository.updateConversation(conversation);
+        log.info("更新 Agent 会话标题 conversationId={} title={}", conversationId, conversation.getTitle());
+        return toDto(conversation);
     }
 
     @Override

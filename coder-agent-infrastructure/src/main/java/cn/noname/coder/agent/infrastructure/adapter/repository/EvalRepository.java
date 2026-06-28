@@ -1,9 +1,9 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IEvalRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalBenchmark;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalCaseResult;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalRun;
+import cn.noname.coder.agent.domain.evaluation.adapter.repository.IEvalRepository;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalBenchmark;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalCaseResult;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalRun;
 import cn.noname.coder.agent.infrastructure.dao.IEvalBenchmarkDao;
 import cn.noname.coder.agent.infrastructure.dao.IEvalCaseResultDao;
 import cn.noname.coder.agent.infrastructure.dao.IEvalRunDao;
@@ -75,6 +75,12 @@ public class EvalRepository implements IEvalRepository {
         po.setFailureCategory(result.getFailureCategory());
         po.setContextCompressionRatio(result.getContextCompressionRatio());
         po.setMemoryHitCount(result.getMemoryHitCount());
+        po.setRetainedAnchorRate(result.getRetainedAnchorRate());
+        po.setMemoryRecallPrecision(result.getMemoryRecallPrecision());
+        po.setMemoryRecallAtK(result.getMemoryRecallAtK());
+        po.setStaleBlockRate(result.getStaleBlockRate());
+        po.setRepeatedReadCount(result.getRepeatedReadCount());
+        po.setTokenCost(result.getTokenCost());
         po.setResultPath(result.getResultPath());
         po.setCreatedAt(result.getCreatedAt());
         caseResultDao.insert(po);
@@ -128,6 +134,12 @@ public class EvalRepository implements IEvalRepository {
                         .failureCategory(po.getFailureCategory())
                         .contextCompressionRatio(po.getContextCompressionRatio())
                         .memoryHitCount(po.getMemoryHitCount())
+                        .retainedAnchorRate(po.getRetainedAnchorRate())
+                        .memoryRecallPrecision(po.getMemoryRecallPrecision())
+                        .memoryRecallAtK(po.getMemoryRecallAtK())
+                        .staleBlockRate(po.getStaleBlockRate())
+                        .repeatedReadCount(po.getRepeatedReadCount())
+                        .tokenCost(po.getTokenCost())
                         .resultPath(po.getResultPath())
                         .createdAt(po.getCreatedAt())
                         .build())

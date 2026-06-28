@@ -11,7 +11,7 @@
  Target Server Version : 80032
  File Encoding         : 65001
 
- Date: 20/06/2026 01:43:51
+ Date: 29/06/2026 00:14:07
 */
 
 SET NAMES utf8mb4;
@@ -37,7 +37,7 @@ CREATE TABLE `agent_checkpoint`  (
   UNIQUE INDEX `uk_checkpoint_message`(`message_id`) USING BTREE,
   INDEX `idx_checkpoint_conversation`(`conversation_id`, `message_seq`) USING BTREE,
   INDEX `idx_checkpoint_workspace`(`workspace_key`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话检查点表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话检查点表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_conversation
@@ -57,7 +57,7 @@ CREATE TABLE `agent_conversation`  (
   UNIQUE INDEX `conversation_id`(`conversation_id`) USING BTREE,
   INDEX `idx_agent_conversation_workspace`(`workspace_key`) USING BTREE,
   INDEX `idx_agent_conversation_updated`(`updated_at`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 22 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 30 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_memory_item
@@ -73,9 +73,13 @@ CREATE TABLE `agent_memory_item`  (
   `content_hash` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '内容哈希',
   `file_mtime` datetime NULL DEFAULT NULL COMMENT '文件修改时间',
   `summary_version` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'v1' COMMENT '摘要版本',
+  `memory_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '????????ROJECT_MEMORY/FILE_MEMORY/TASK_MEMORY/RUN_OBSERVATION/WORKING_MEMORY',
+  `scope` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '?????????workspace/conversation/run/file',
   `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '记忆标题',
   `summary` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '摘要内容',
   `metadata_json` json NULL COMMENT '记忆元数据',
+  `trust_score` decimal(8, 4) NOT NULL DEFAULT 0.8000 COMMENT 'memory trust score',
+  `evidence_json` json NULL COMMENT 'memory evidence json',
   `freshness_status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'FRESH' COMMENT '新鲜度状态',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   `updated_at` datetime NOT NULL COMMENT '更新时间',
@@ -84,8 +88,10 @@ CREATE TABLE `agent_memory_item`  (
   INDEX `idx_memory_workspace`(`workspace_key`) USING BTREE,
   INDEX `idx_memory_source`(`source_type`, `source_id`) USING BTREE,
   INDEX `idx_memory_file`(`workspace_key`, `file_path`(512)) USING BTREE,
-  INDEX `idx_memory_freshness`(`freshness_status`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 276 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '结构化记忆元数据' ROW_FORMAT = Dynamic;
+  INDEX `idx_memory_freshness`(`freshness_status`) USING BTREE,
+  INDEX `idx_memory_type_scope`(`workspace_key`, `memory_type`, `scope`) USING BTREE,
+  INDEX `idx_memory_trust`(`workspace_key`, `freshness_status`, `trust_score`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 479 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '结构化记忆元数据' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_message
@@ -108,7 +114,7 @@ CREATE TABLE `agent_message`  (
   INDEX `idx_agent_message_run`(`run_id`) USING BTREE,
   INDEX `idx_message_conversation_seq`(`conversation_id`, `sequence_no`) USING BTREE,
   INDEX `idx_message_visibility`(`conversation_id`, `visibility_status`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 315 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话消息' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 452 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent会话消息' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_model_provider
@@ -162,7 +168,7 @@ CREATE TABLE `agent_permission_audit`  (
   INDEX `idx_permission_audit_run`(`run_id`) USING BTREE,
   INDEX `idx_permission_audit_workspace`(`workspace_key`) USING BTREE,
   INDEX `idx_permission_audit_action`(`action`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 88 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent权限审计记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 196 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent权限审计记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_run
@@ -197,7 +203,7 @@ CREATE TABLE `agent_run`  (
   INDEX `idx_agent_run_status`(`status`) USING BTREE,
   INDEX `idx_agent_run_workspace`(`workspace_key`) USING BTREE,
   INDEX `idx_agent_run_conversation`(`conversation_id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 211 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 331 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_run_change_set
@@ -217,7 +223,7 @@ CREATE TABLE `agent_run_change_set`  (
   UNIQUE INDEX `uk_run_change_set`(`run_id`) USING BTREE,
   INDEX `idx_change_set_conversation`(`conversation_id`, `created_at`) USING BTREE,
   INDEX `idx_change_set_workspace`(`workspace_key`, `created_at`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行文件变更集表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 33 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行文件变更集表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_run_file_change
@@ -238,7 +244,7 @@ CREATE TABLE `agent_run_file_change`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_file_change_run`(`run_id`) USING BTREE,
   INDEX `idx_file_change_path`(`file_path`(255)) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行文件变更明细表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 52 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent运行文件变更明细表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_step
@@ -253,7 +259,7 @@ CREATE TABLE `agent_step`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_agent_step_run`(`run_id`, `step_no`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 572 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent步骤记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1309 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent步骤记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for agent_workspace
@@ -270,7 +276,7 @@ CREATE TABLE `agent_workspace`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `workspace_key`(`workspace_key`) USING BTREE,
   INDEX `idx_agent_workspace_status`(`status`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 16 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent工作区记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'Agent工作区记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for audit_event
@@ -286,7 +292,7 @@ CREATE TABLE `audit_event`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_audit_event_run`(`run_id`) USING BTREE,
   INDEX `idx_audit_event_type`(`event_type`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 655 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '审计事件记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 942 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '审计事件记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for context_snapshot
@@ -308,13 +314,14 @@ CREATE TABLE `context_snapshot`  (
   `selected_file_summary_count` int NOT NULL DEFAULT 0 COMMENT '入选文件摘要数量',
   `selected_raw_snippet_count` int NOT NULL DEFAULT 0 COMMENT '入选原始片段数量',
   `snapshot_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '快照工件相对路径',
+  `section_detail_json` json NULL COMMENT 'context section detail json',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `snapshot_id`(`snapshot_id`) USING BTREE,
   INDEX `idx_context_snapshot_run`(`run_id`, `model_call_no`) USING BTREE,
   INDEX `idx_context_snapshot_workspace`(`workspace_key`) USING BTREE,
   INDEX `idx_context_snapshot_model`(`model_key`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1098 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '上下文快照指标' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1622 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '上下文快照指标' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for eval_benchmark
@@ -360,6 +367,12 @@ CREATE TABLE `eval_case_result`  (
   `failure_category` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '失败分类',
   `context_compression_ratio` decimal(8, 4) NULL DEFAULT NULL COMMENT '上下文压缩率',
   `memory_hit_count` int NOT NULL DEFAULT 0 COMMENT '记忆命中数量',
+  `retained_anchor_rate` decimal(8, 4) NULL DEFAULT NULL COMMENT 'retained anchor rate',
+  `memory_recall_precision` decimal(8, 4) NULL DEFAULT NULL COMMENT 'memory recall precision',
+  `memory_recall_at_k` decimal(8, 4) NULL DEFAULT NULL COMMENT 'memory recall at k',
+  `stale_block_rate` decimal(8, 4) NULL DEFAULT NULL COMMENT 'stale memory block rate',
+  `repeated_read_count` int NOT NULL DEFAULT 0 COMMENT 'repeated file read count',
+  `token_cost` bigint NOT NULL DEFAULT 0 COMMENT 'estimated token cost',
   `result_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '结果工件路径',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
@@ -402,13 +415,15 @@ CREATE TABLE `memory_recall`  (
   `min_score` decimal(8, 4) NOT NULL COMMENT '最低分数',
   `hit_count` int NOT NULL DEFAULT 0 COMMENT '命中数量',
   `selected_count` int NOT NULL DEFAULT 0 COMMENT '入选数量',
+  `candidate_count` int NOT NULL DEFAULT 0 COMMENT 'memory recall candidate count',
+  `filtered_count` int NOT NULL DEFAULT 0 COMMENT 'memory recall filtered count',
   `detail_json` json NULL COMMENT '召回明细',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `recall_id`(`recall_id`) USING BTREE,
   INDEX `idx_memory_recall_run`(`run_id`) USING BTREE,
   INDEX `idx_memory_recall_workspace`(`workspace_key`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 369 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '记忆召回记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 895 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '记忆召回记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for model_call
@@ -428,7 +443,7 @@ CREATE TABLE `model_call`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_model_call_run`(`run_id`, `call_no`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1272 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '模型调用记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1789 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '模型调用记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for run_artifact
@@ -444,7 +459,7 @@ CREATE TABLE `run_artifact`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_run_artifact_run`(`run_id`) USING BTREE,
   INDEX `idx_run_artifact_type`(`artifact_type`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 56347 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '运行工件记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 89200 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '运行工件记录' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for tool_approval_request
@@ -467,7 +482,7 @@ CREATE TABLE `tool_approval_request`  (
   UNIQUE INDEX `approval_id`(`approval_id`) USING BTREE,
   INDEX `idx_tool_approval_run`(`run_id`) USING BTREE,
   INDEX `idx_tool_approval_status`(`status`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 44 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '高风险工具审批请求' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 138 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '高风险工具审批请求' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for tool_call
@@ -488,6 +503,6 @@ CREATE TABLE `tool_call`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_tool_call_run`(`run_id`, `call_no`) USING BTREE,
   INDEX `idx_tool_call_name`(`tool_name`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1519 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '工具调用记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2153 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '工具调用记录' ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -1,8 +1,8 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextBudget;
 import cn.noname.coder.agent.infrastructure.dao.IModelProviderDao;
 import cn.noname.coder.agent.infrastructure.dao.po.ModelProviderPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;

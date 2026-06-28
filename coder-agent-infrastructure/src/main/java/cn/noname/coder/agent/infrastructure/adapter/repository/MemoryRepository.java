@@ -1,18 +1,16 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IMemoryRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryItem;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryRecall;
+import cn.noname.coder.agent.domain.memory.adapter.repository.IMemoryRepository;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryItem;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryRecall;
 import cn.noname.coder.agent.infrastructure.dao.IMemoryItemDao;
 import cn.noname.coder.agent.infrastructure.dao.IMemoryRecallDao;
 import cn.noname.coder.agent.infrastructure.dao.po.MemoryItemPO;
 import cn.noname.coder.agent.infrastructure.dao.po.MemoryRecallPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +38,8 @@ public class MemoryRepository implements IMemoryRepository {
         po.setMinScore(recall.getMinScore());
         po.setHitCount(recall.getHitCount());
         po.setSelectedCount(recall.getSelectedCount());
+        po.setCandidateCount(recall.getCandidateCount());
+        po.setFilteredCount(recall.getFilteredCount());
         po.setDetailJson(recall.getDetailJson());
         po.setCreatedAt(recall.getCreatedAt());
         memoryRecallDao.insert(po);
@@ -67,16 +67,14 @@ public class MemoryRepository implements IMemoryRepository {
 
     @Override
     public void markFileMemoriesStale(String workspaceKey, String filePath, String currentContentHash) {
-        LambdaUpdateWrapper<MemoryItemPO> wrapper = new LambdaUpdateWrapper<MemoryItemPO>()
+        LambdaQueryWrapper<MemoryItemPO> wrapper = new LambdaQueryWrapper<MemoryItemPO>()
                 .eq(MemoryItemPO::getWorkspaceKey, workspaceKey)
                 .eq(MemoryItemPO::getFilePath, filePath)
-                .eq(MemoryItemPO::getFreshnessStatus, "FRESH")
-                .set(MemoryItemPO::getFreshnessStatus, "STALE")
-                .set(MemoryItemPO::getUpdatedAt, LocalDateTime.now());
+                .eq(MemoryItemPO::getFreshnessStatus, "FRESH");
         if (currentContentHash != null && !currentContentHash.isBlank()) {
             wrapper.ne(MemoryItemPO::getContentHash, currentContentHash);
         }
-        memoryItemDao.update(wrapper);
+        memoryItemDao.delete(wrapper);
     }
 
     @Override
@@ -120,9 +118,13 @@ public class MemoryRepository implements IMemoryRepository {
         po.setContentHash(memory.getContentHash());
         po.setFileMtime(memory.getFileMtime());
         po.setSummaryVersion(memory.getSummaryVersion());
+        po.setMemoryType(memory.getMemoryType());
+        po.setScope(memory.getScope());
         po.setTitle(memory.getTitle());
         po.setSummary(memory.getSummary());
         po.setMetadataJson(memory.getMetadataJson());
+        po.setTrustScore(memory.getTrustScore());
+        po.setEvidenceJson(memory.getEvidenceJson());
         po.setFreshnessStatus(memory.getFreshnessStatus());
         po.setCreatedAt(memory.getCreatedAt());
         po.setUpdatedAt(memory.getUpdatedAt());
@@ -140,9 +142,13 @@ public class MemoryRepository implements IMemoryRepository {
                 .contentHash(po.getContentHash())
                 .fileMtime(po.getFileMtime())
                 .summaryVersion(po.getSummaryVersion())
+                .memoryType(po.getMemoryType())
+                .scope(po.getScope())
                 .title(po.getTitle())
                 .summary(po.getSummary())
                 .metadataJson(po.getMetadataJson())
+                .trustScore(po.getTrustScore())
+                .evidenceJson(po.getEvidenceJson())
                 .freshnessStatus(po.getFreshnessStatus())
                 .createdAt(po.getCreatedAt())
                 .updatedAt(po.getUpdatedAt())

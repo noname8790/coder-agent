@@ -6,44 +6,45 @@ import cn.noname.coder.agent.cases.agent.RunChangeService;
 import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
-import cn.noname.coder.agent.domain.agent.adapter.port.IContextEngine;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IStreamingModelGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.context.adapter.port.IContextEngine;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IStreamingModelGateway;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGateway;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentStep;
 import cn.noname.coder.agent.domain.agent.model.entity.AuditEvent;
-import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
 import cn.noname.coder.agent.domain.agent.model.entity.ModelCall;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
-import cn.noname.coder.agent.domain.agent.model.entity.ToolApprovalRequest;
-import cn.noname.coder.agent.domain.agent.model.entity.ToolCall;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolApprovalRequest;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunEvent;
 import cn.noname.coder.agent.domain.agent.model.valobj.AgentRunEventType;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextAssemblyResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextCandidate;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextCutReason;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextLayer;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelProtocolMessage;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelResponse;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEvent;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEventType;
-import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextAssemblyResult;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextBudget;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextCandidate;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextCutReason;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextLayer;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelProtocolMessage;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelRequest;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelResponse;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelStreamEvent;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelStreamEventType;
+import cn.noname.coder.agent.domain.tool.model.valobj.TestCommandReport;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolObservation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.domain.agent.service.AgentRunDomainService;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
@@ -51,6 +52,9 @@ import cn.noname.coder.agent.types.enums.ArtifactType;
 import cn.noname.coder.agent.types.enums.AuditEventType;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import cn.noname.coder.agent.types.exception.AppException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,6 +68,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -75,6 +81,9 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class AgentRunExecutor {
+
+    private static final ConcurrentHashMap<String, ReentrantLock> RUN_LOCKS = new ConcurrentHashMap<>();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final IAgentRunRepository runRepository;
     private final IAgentRecordRepository recordRepository;
@@ -98,6 +107,19 @@ public class AgentRunExecutor {
     private final AgentContextAssembler contextAssembler = new AgentContextAssembler();
 
     public void execute(String runId) {
+        ReentrantLock lock = RUN_LOCKS.computeIfAbsent(runId, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            doExecute(runId);
+        } finally {
+            lock.unlock();
+            if (!lock.hasQueuedThreads()) {
+                RUN_LOCKS.remove(runId, lock);
+            }
+        }
+    }
+
+    private void doExecute(String runId) {
         AgentRun run = runRepository.findByRunId(runId).orElse(null);
         if (run == null) {
             return;
@@ -144,12 +166,10 @@ public class AgentRunExecutor {
 
                 List<ContextCandidate> candidates = new ArrayList<>(contextAssembler.initialCandidates(run, workspace));
                 candidates.add(contextAssembler.budgetCandidate(run));
-                ContextCandidate recent = recentMessagesCandidate(run);
-                if (recent != null) {
-                    candidates.add(recent);
-                }
-                candidates.addAll(rejectedApprovalCandidates(run));
-                candidates.addAll(approvedApprovalCandidates(run));
+                candidates.addAll(conversationContextCandidates(run));
+                candidates.add(contextAssembler.workStatusCandidate(run,
+                        runChangeService.recentWorkStatusSummaries(run.getConversationId(), run.getRunId(), 8)));
+                candidates.addAll(rejectedApprovalCandidates(run, protocolMessages));
                 candidates.addAll(memoryService.recallForRun(run, inactiveContextRunIds(run)));
                 candidates.addAll(dynamicCandidates);
 
@@ -424,7 +444,10 @@ public class AgentRunExecutor {
                         "达到最大工具调用次数：" + run.getMaxToolCalls(), AuditEventType.BUDGET_EXHAUSTED);
                 return false;
             }
-            if (pauseForApprovalIfNeeded(run, workspace, invocation)) {
+            if (returnAlreadyExecutedHighRiskToolResult(run, workspace, invocation, dynamicCandidates, protocolMessages, editState)) {
+                continue;
+            }
+            if (pauseForApprovalIfNeeded(run, workspace, invocation, editState)) {
                 return false;
             }
             if (!allowToolInvocation(run, workspace, invocation, editState)) {
@@ -527,16 +550,23 @@ public class AgentRunExecutor {
             recordAudit(run.getRunId(), auditType(result.errorMessage()), "工具调用被拒绝", summary);
         }
 
-        collectEditState(run.getToolCallCount(), result, editState);
+        collectEditState(run.getToolCallCount(), invocation, result, editState);
+        if (result.status() == CallStatus.SUCCESS && isHighRiskTool(invocation)) {
+            editState.executedHighRiskToolKeys.add(toolObservationKey(invocation));
+        }
         collectGitState(run, invocation, result);
         memoryService.rememberToolResult(run, invocation, result);
         publishResultEvents(workspace, run, invocation, result);
 
-        String observationKey = toolObservationKey(invocation);
+        String observationKey = toolObservationKey(invocation, editState);
         String observation = compressToolOutputForContext(run, toolObservation(invocation, result, summary));
         protocolMessages.add(ModelProtocolMessage.toolResult(invocation, observation));
         if (editState.seenToolObservationKeys.add(observationKey)) {
             dynamicCandidates.add(contextAssembler.toolResultCandidate(run, invocation.name(), observation));
+            ContextCandidate rawSnippet = rawSnippetCandidate(run, invocation, result);
+            if (rawSnippet != null) {
+                dynamicCandidates.add(rawSnippet);
+            }
         } else {
             log.info("跳过重复工具观察 runId={} tool={} arguments={}",
                     run.getRunId(), invocation.name(), redact(invocation.argumentsJson()));
@@ -557,11 +587,33 @@ public class AgentRunExecutor {
         return true;
     }
 
+    private ContextCandidate rawSnippetCandidate(AgentRun run, ToolInvocation invocation, ToolResult result) {
+        if (invocation == null || result == null || result.status() != CallStatus.SUCCESS) {
+            return null;
+        }
+        if (!"read_file".equals(invocation.name()) || !StringUtils.hasText(result.fullOutput())) {
+            return null;
+        }
+        return contextAssembler.rawSnippetCandidate(run, readArgument(invocation.argumentsJson(), "path"), result.fullOutput());
+    }
+
+    private String readArgument(String argumentsJson, String fieldName) {
+        if (!StringUtils.hasText(argumentsJson) || !StringUtils.hasText(fieldName)) {
+            return "";
+        }
+        try {
+            JsonNode value = OBJECT_MAPPER.readTree(argumentsJson).get(fieldName);
+            return value == null || value.isNull() ? "" : value.asText("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     private boolean allowToolInvocation(AgentRun run,
                                         WorkspaceDescriptor workspace,
                                         ToolInvocation invocation,
                                         RunEditState editState) {
-        String key = toolObservationKey(invocation);
+        String key = toolObservationKey(invocation, editState);
         int count = editState.toolInvocationCounts.merge(key, 1, Integer::sum);
         if (count <= 2) {
             return true;
@@ -620,7 +672,7 @@ public class AgentRunExecutor {
                 "reason", reason));
     }
 
-    private List<ContextCandidate> rejectedApprovalCandidates(AgentRun run) {
+    private List<ContextCandidate> rejectedApprovalCandidates(AgentRun run, List<ModelProtocolMessage> protocolMessages) {
         List<ToolApprovalRequest> rejectedApprovals = toolApprovalRepository.listRejectedPendingReturn(run.getRunId());
         if (rejectedApprovals.isEmpty()) {
             return List.of();
@@ -637,6 +689,24 @@ public class AgentRunExecutor {
                     approval.getToolName(),
                     approval.getArgumentsJson() == null ? "{}" : approval.getArgumentsJson(),
                     approval.getDecisionReason() == null ? "user rejected" : approval.getDecisionReason());
+            ToolInvocation invocation = new ToolInvocation(
+                    "approval_rejected_" + approval.getApprovalId(),
+                    approval.getToolName(),
+                    approval.getArgumentsJson() == null ? "{}" : approval.getArgumentsJson());
+            protocolMessages.add(ModelProtocolMessage.assistantToolCalls(List.of(invocation), ""));
+            protocolMessages.add(ModelProtocolMessage.toolResult(invocation, content));
+            recordRepository.saveToolCall(ToolCall.builder()
+                    .runId(run.getRunId())
+                    .callNo(run.getToolCallCount() + 1)
+                    .toolName(approval.getToolName())
+                    .argumentsSummary(abbreviate(approval.getArgumentsJson() == null ? "{}" : approval.getArgumentsJson(), 1000))
+                    .resultSummary(abbreviate(content, 1000))
+                    .exitCode(1)
+                    .status(CallStatus.REJECTED)
+                    .latencyMs(0L)
+                    .errorMessage("APPROVAL_REJECTED")
+                    .createdAt(LocalDateTime.now())
+                    .build());
             candidates.add(new ContextCandidate(
                     "approval_rejected_" + approval.getApprovalId(),
                     ContextLayer.TOOL_RESULT,
@@ -684,7 +754,46 @@ public class AgentRunExecutor {
         return candidates;
     }
 
-    private boolean pauseForApprovalIfNeeded(AgentRun run, WorkspaceDescriptor workspace, ToolInvocation invocation) {
+    private boolean returnAlreadyExecutedHighRiskToolResult(AgentRun run,
+                                                            WorkspaceDescriptor workspace,
+                                                            ToolInvocation invocation,
+                                                            List<ContextCandidate> dynamicCandidates,
+                                                            List<ModelProtocolMessage> protocolMessages,
+                                                            RunEditState editState) {
+        if (!isHighRiskTool(invocation) || !editState.executedHighRiskToolKeys.contains(toolObservationKey(invocation))) {
+            String safeArguments = normalizeApprovalArguments(redact(invocation.argumentsJson()));
+            boolean executedBefore = alreadyExecutedApproval(run.getRunId(), invocation.name(), safeArguments);
+            if (!executedBefore) {
+                return false;
+            }
+        }
+        long start = System.currentTimeMillis();
+        run.setToolCallCount(run.getToolCallCount() + 1);
+        ToolResult result = new ToolResult(CallStatus.SUCCESS,
+                "高风险工具和参数已成功执行过，本次不再重复执行；请基于已有工具结果总结任务。",
+                "",
+                0,
+                null);
+        recordToolResult(run, workspace, invocation, result, start, dynamicCandidates, protocolMessages, editState);
+        return true;
+    }
+
+    private boolean alreadyExecutedApproval(String runId, String toolName, String safeArguments) {
+        if (toolApprovalRepository.findApproved(runId, toolName, safeArguments)
+                .filter(approval -> "APPROVED_EXECUTED".equals(approval.getStatus()))
+                .isPresent()) {
+            return true;
+        }
+        return toolApprovalRepository.listApproved(runId).stream()
+                .anyMatch(approval -> toolName.equals(approval.getToolName())
+                        && "APPROVED_EXECUTED".equals(approval.getStatus())
+                        && normalizeApprovalArguments(approval.getArgumentsJson()).equals(safeArguments));
+    }
+
+    private boolean pauseForApprovalIfNeeded(AgentRun run,
+                                             WorkspaceDescriptor workspace,
+                                             ToolInvocation invocation,
+                                             RunEditState editState) {
         if (!properties.getToolApproval().isEnabled() || !isHighRiskTool(invocation)) {
             return false;
         }
@@ -722,6 +831,9 @@ public class AgentRunExecutor {
         }
         run.setStatus(AgentRunStatus.WAITING_APPROVAL);
         runRepository.update(run);
+        if (editState != null && !editState.changedFiles.isEmpty()) {
+            runChangeService.record(workspace, run, editState.changedFiles);
+        }
         trace(workspace, run.getRunId(), AgentRunEventType.TOOL_CALL_COMPLETED.code(), Map.of(
                 "tool", invocation.name(),
                 "status", "WAITING_APPROVAL",
@@ -789,15 +901,12 @@ public class AgentRunExecutor {
     }
 
     private String normalizeApprovalArguments(String argumentsJson) {
-        if (argumentsJson == null) {
-            return "";
-        }
-        return argumentsJson.replace("\\\\", "/").replace("\\", "/").trim();
+        return normalizeToolArguments(argumentsJson);
     }
 
-    private ContextCandidate recentMessagesCandidate(AgentRun run) {
+    private List<ContextCandidate> conversationContextCandidates(AgentRun run) {
         if (run.getConversationId() == null || run.getConversationId().isBlank()) {
-            return null;
+            return List.of();
         }
         List<AgentMessage> messages = conversationRepository.listMessages(run.getConversationId()).stream()
                 .filter(message -> !run.getRunId().equals(message.getRunId()))
@@ -805,13 +914,16 @@ public class AgentRunExecutor {
                 .filter(message -> StringUtils.hasText(message.getContent()))
                 .toList();
         if (messages.isEmpty()) {
-            return null;
+            return List.of();
         }
         int maxChars = Math.max(1000, properties.getContext().getRecentMessageBudgetTokens() * 3);
         List<AgentMessage> selected = new ArrayList<>();
         int usedChars = 0;
         for (int i = messages.size() - 1; i >= 0; i--) {
             AgentMessage message = messages.get(i);
+            if (selected.size() >= 8) {
+                break;
+            }
             int nextChars = message.getContent().length();
             if (!selected.isEmpty() && usedChars + nextChars > maxChars) {
                 break;
@@ -819,7 +931,23 @@ public class AgentRunExecutor {
             selected.add(0, message);
             usedChars += nextChars;
         }
-        return contextAssembler.recentMessagesCandidate(run, selected);
+        List<ContextCandidate> candidates = new ArrayList<>();
+        List<AgentMessage> olderMessages = messages.subList(0, Math.max(0, messages.size() - selected.size()));
+        List<String> olderRunIds = olderMessages.stream()
+                .map(AgentMessage::getRunId)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        ContextCandidate summary = memoryService.conversationSummaryCandidateFromRunMemories(run, olderRunIds)
+                .orElseGet(() -> contextAssembler.conversationSummaryCandidate(run, olderMessages));
+        if (summary != null) {
+            candidates.add(summary);
+        }
+        ContextCandidate recent = contextAssembler.recentMessagesCandidate(run, selected);
+        if (recent != null) {
+            candidates.add(recent);
+        }
+        return candidates;
     }
 
     private List<String> inactiveContextRunIds(AgentRun run) {
@@ -885,6 +1013,7 @@ public class AgentRunExecutor {
                 .selectedFileSummaryCount(countSelected(context, ContextLayer.FILE_SUMMARY))
                 .selectedRawSnippetCount(countSelected(context, ContextLayer.RAW_SNIPPET))
                 .snapshotPath(artifact.getRelativePath())
+                .sectionDetailJson(sectionDetailJson(context))
                 .createdAt(LocalDateTime.now())
                 .build());
     }
@@ -899,13 +1028,52 @@ public class AgentRunExecutor {
         item.put("priority", candidate.priority());
         item.put("sourceType", candidate.sourceType());
         item.put("sourceId", candidate.sourceId());
-        item.put("cutReason", candidate.cutReason().name());
+        item.put("scope", candidate.scope());
+        item.put("freshnessStatus", candidate.freshnessStatus());
+        item.put("trustScore", candidate.trustScore());
+        item.put("evidenceRefs", candidate.evidenceRefs());
+        item.put("cutReason", cutReasonName(candidate));
         item.put("contentPreview", abbreviate(candidate.content(), 500));
         return item;
     }
 
+    private String sectionDetailJson(ContextAssemblyResult context) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("selected", summarizeByLayer(context.selected()));
+        detail.put("rejected", summarizeByLayer(context.rejected()));
+        detail.put("cutReasons", context.rejected().stream()
+                .collect(java.util.stream.Collectors.groupingBy(this::cutReasonName, java.util.stream.Collectors.counting())));
+        return mapToJson(detail);
+    }
+
+    private String cutReasonName(ContextCandidate candidate) {
+        return candidate.cutReason() == null ? "NONE" : candidate.cutReason().name();
+    }
+
+    private Map<String, Long> summarizeByLayer(List<ContextCandidate> candidates) {
+        return candidates.stream()
+                .collect(java.util.stream.Collectors.groupingBy(candidate -> candidate.layer().name(), LinkedHashMap::new, java.util.stream.Collectors.counting()));
+    }
+
+    private String mapToJson(Map<String, Object> map) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(map);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("JSON 序列化失败", e);
+        }
+    }
+
     private int countSelected(ContextAssemblyResult context, ContextLayer layer) {
-        return (int) context.selected().stream().filter(candidate -> candidate.layer() == layer).count();
+        return (int) context.selected().stream().filter(candidate -> matchesLayerMetric(candidate, layer)).count();
+    }
+
+    private boolean matchesLayerMetric(ContextCandidate candidate, ContextLayer layer) {
+        if (candidate.layer() == layer) {
+            return true;
+        }
+        return layer == ContextLayer.FILE_SUMMARY
+                && candidate.layer() == ContextLayer.MEMORY_RECALL
+                && "FILE_SUMMARY".equals(candidate.sourceType());
     }
 
     private List<ModelProtocolMessage> modelProtocolMessages(List<String> messages, List<ModelProtocolMessage> protocolMessages) {
@@ -931,46 +1099,167 @@ public class AgentRunExecutor {
     }
 
     private String toolObservation(ToolInvocation invocation, ToolResult result, String summary) {
-        StringBuilder content = new StringBuilder();
-        content.append("TOOL_OBSERVATION").append('\n')
-                .append("tool=").append(invocation.name()).append('\n')
-                .append("arguments=").append(redact(invocation.argumentsJson())).append('\n')
-                .append("status=").append(result.status()).append('\n')
-                .append("exitCode=").append(result.exitCode() == null ? "" : result.exitCode()).append('\n');
-        if (StringUtils.hasText(result.errorMessage())) {
-            content.append("error=").append(result.errorMessage()).append('\n');
-        }
-        String safeSummary = StringUtils.hasText(summary) ? summary : "tool returned no visible content";
-        content.append("summary=").append(safeSummary).append('\n');
-        if (result.status() == CallStatus.SUCCESS) {
-            content.append("instruction=tool call completed. Do not call the same tool with the same arguments again; continue based on status and summary.");
-        } else {
-            content.append("instruction=tool call failed. Do not mechanically repeat the same arguments; try a different path/tool or explain the blocker.");
-        }
-        return content.toString();
+        return ToolObservation.from(
+                        new ToolInvocation(invocation.id(), invocation.name(), redact(invocation.argumentsJson())),
+                        result,
+                        StringUtils.hasText(summary) ? summary : "tool returned no visible content")
+                .toPromptBlock();
     }
 
     private String toolObservationKey(ToolInvocation invocation) {
         return invocation.name() + ":" + normalizeToolArguments(redact(invocation.argumentsJson()));
     }
 
+    private String toolObservationKey(ToolInvocation invocation, RunEditState editState) {
+        String baseKey = toolObservationKey(invocation);
+        if (isWorkspaceStateSensitiveTool(invocation)) {
+            return baseKey + ":workspaceMutationVersion=" + editState.workspaceMutationVersion;
+        }
+        return baseKey;
+    }
+
+    private boolean isWorkspaceStateSensitiveTool(ToolInvocation invocation) {
+        if (invocation == null) {
+            return false;
+        }
+        return switch (invocation.name()) {
+            case "run_shell", "read_file", "list_files", "search_text", "git_status", "git_diff", "git_log" -> true;
+            default -> false;
+        };
+    }
+
     private String normalizeToolArguments(String argumentsJson) {
         if (argumentsJson == null) {
             return "";
         }
-        return argumentsJson.replace("\\\\", "/").replace("\\", "/").trim();
+        String trimmed = argumentsJson.trim();
+        Map<String, Object> fields = parseFlatJsonFields(trimmed);
+        if (!fields.isEmpty()) {
+            return mapToJson(fields);
+        }
+        return removeJsonWhitespace(trimmed).replace("\\\\", "/").replace("\\", "/");
     }
 
-    private void collectEditState(int toolCallNo, ToolResult result, RunEditState editState) {
+    private Map<String, Object> parseFlatJsonFields(String json) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        if (json == null) {
+            return fields;
+        }
+        int i = 0;
+        while (i < json.length()) {
+            int keyStart = nextQuote(json, i);
+            if (keyStart < 0) {
+                break;
+            }
+            ParsedString key = parseJsonStringAt(json, keyStart);
+            if (key == null) {
+                break;
+            }
+            int colon = json.indexOf(':', key.nextIndex());
+            if (colon < 0) {
+                break;
+            }
+            int valueStart = skipWhitespace(json, colon + 1);
+            if (valueStart >= json.length()) {
+                break;
+            }
+            if (json.charAt(valueStart) == '"') {
+                ParsedString value = parseJsonStringAt(json, valueStart);
+                if (value == null) {
+                    break;
+                }
+                fields.put(key.value(), normalizeArgumentValue(value.value()));
+                i = value.nextIndex();
+            } else {
+                int valueEnd = valueStart;
+                while (valueEnd < json.length() && json.charAt(valueEnd) != ',' && json.charAt(valueEnd) != '}') {
+                    valueEnd++;
+                }
+                fields.put(key.value(), normalizeArgumentValue(json.substring(valueStart, valueEnd).trim()));
+                i = valueEnd;
+            }
+        }
+        return fields;
+    }
+
+    private String normalizeArgumentValue(String value) {
+        return value == null ? "" : value.replace("\\", "/");
+    }
+
+    private String unescapeJsonString(String value) {
+        if (value == null || value.indexOf('\\') < 0) {
+            return value == null ? "" : value;
+        }
+        StringBuilder result = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (current == '\\' && i + 1 < value.length()) {
+                char next = value.charAt(++i);
+                if (next == '"' || next == '\\' || next == '/') {
+                    result.append(next);
+                } else if (next == 'n') {
+                    result.append('\n');
+                } else if (next == 'r') {
+                    result.append('\r');
+                } else if (next == 't') {
+                    result.append('\t');
+                } else {
+                    result.append('\\').append(next);
+                }
+                continue;
+            }
+            result.append(current);
+        }
+        return result.toString();
+    }
+
+    private String removeJsonWhitespace(String json) {
+        StringBuilder result = new StringBuilder(json.length());
+        boolean inString = false;
+        for (int i = 0; i < json.length(); i++) {
+            char current = json.charAt(i);
+            if (current == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
+                inString = !inString;
+            }
+            if (!inString && Character.isWhitespace(current)) {
+                continue;
+            }
+            result.append(current);
+        }
+        return result.toString();
+    }
+
+    private void collectEditState(int toolCallNo, ToolInvocation invocation, ToolResult result, RunEditState editState) {
+        if (!recordsWorkspaceMutation(invocation)) {
+            if (result.testReport() != null) {
+                editState.testReports.add(result.testReport());
+            }
+            return;
+        }
+        boolean changedWorkspace = false;
         if (result.changedFiles() != null && !result.changedFiles().isEmpty()) {
             for (ChangedFile file : result.changedFiles()) {
                 editState.changedFiles.add(new ChangedFile(file.relativePath(), file.changeType(), file.beforeHash(),
                         file.afterHash(), toolCallNo, file.beforeContent(), file.afterContent()));
             }
+            changedWorkspace = true;
         }
         if (result.testReport() != null) {
             editState.testReports.add(result.testReport());
         }
+        if (changedWorkspace) {
+            editState.workspaceMutationVersion++;
+        }
+    }
+
+    private boolean recordsWorkspaceMutation(ToolInvocation invocation) {
+        if (invocation == null) {
+            return false;
+        }
+        return switch (invocation.name()) {
+            case "write_file", "apply_patch", "overwrite_file", "delete_file" -> true;
+            default -> false;
+        };
     }
 
     private void collectGitState(AgentRun run, ToolInvocation invocation, ToolResult result) {
@@ -1016,11 +1305,7 @@ public class AgentRunExecutor {
     }
 
     private String commandFromJson(String argumentsJson) {
-        if (argumentsJson == null) {
-            return "";
-        }
-        Matcher matcher = Pattern.compile("\"command\"\\s*:\\s*\"([^\"]+)\"").matcher(argumentsJson);
-        return matcher.find() ? matcher.group(1).trim() : "";
+        return jsonField(argumentsJson, "command").trim();
     }
 
     private String parseCommitHash(String output) {
@@ -1035,8 +1320,96 @@ public class AgentRunExecutor {
         if (json == null) {
             return "";
         }
-        Matcher matcher = Pattern.compile("\"" + Pattern.quote(field) + "\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"").matcher(json);
-        return matcher.find() ? matcher.group(1).replace("\\\"", "\"").replace("\\\\", "\\") : "";
+        return linearJsonStringField(json, field);
+    }
+
+    private String linearJsonStringField(String json, String field) {
+        ParsedString key = findJsonKey(json, field);
+        if (key == null) {
+            return "";
+        }
+        int colonIndex = json.indexOf(':', key.nextIndex());
+        if (colonIndex < 0) {
+            return "";
+        }
+        int valueStart = skipWhitespace(json, colonIndex + 1);
+        if (valueStart >= json.length() || json.charAt(valueStart) != '"') {
+            return "";
+        }
+        ParsedString value = parseJsonStringAt(json, valueStart);
+        return value == null ? "" : value.value();
+    }
+
+    private ParsedString findJsonKey(String json, String field) {
+        int i = 0;
+        while (i < json.length()) {
+            int quote = nextQuote(json, i);
+            if (quote < 0) {
+                return null;
+            }
+            ParsedString parsed = parseJsonStringAt(json, quote);
+            if (parsed == null) {
+                return null;
+            }
+            if (field.equals(parsed.value())) {
+                return parsed;
+            }
+            i = parsed.nextIndex();
+        }
+        return null;
+    }
+
+    private int nextQuote(String value, int start) {
+        for (int i = Math.max(0, start); i < value.length(); i++) {
+            if (value.charAt(i) == '"') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int skipWhitespace(String value, int start) {
+        int i = Math.max(0, start);
+        while (i < value.length() && Character.isWhitespace(value.charAt(i))) {
+            i++;
+        }
+        return i;
+    }
+
+    private ParsedString parseJsonStringAt(String json, int quoteIndex) {
+        if (quoteIndex < 0 || quoteIndex >= json.length() || json.charAt(quoteIndex) != '"') {
+            return null;
+        }
+        StringBuilder value = new StringBuilder();
+        boolean escaping = false;
+        for (int i = quoteIndex + 1; i < json.length(); i++) {
+            char current = json.charAt(i);
+            if (escaping) {
+                if (current == 'n') {
+                    value.append('\n');
+                } else if (current == 'r') {
+                    value.append('\r');
+                } else if (current == 't') {
+                    value.append('\t');
+                } else {
+                    value.append(current);
+                }
+                escaping = false;
+                continue;
+            }
+            if (current == '\\') {
+                escaping = true;
+                continue;
+            }
+            if (current == '"') {
+                return new ParsedString(value.toString(), i + 1);
+            }
+            value.append(current);
+        }
+        return new ParsedString(value.toString(), json.length());
+    }
+
+    private record ParsedString(String value, int nextIndex) {
     }
 
     private void writeFinal(WorkspaceDescriptor workspace, AgentRun run, RunEditState editState) {
@@ -1280,6 +1653,7 @@ public class AgentRunExecutor {
         private final List<ChangedFile> changedFiles = new ArrayList<>();
         private final List<TestCommandReport> testReports = new ArrayList<>();
         private final Set<String> seenToolObservationKeys = new HashSet<>();
+        private final Set<String> executedHighRiskToolKeys = new HashSet<>();
         private final Map<String, Integer> toolInvocationCounts = new LinkedHashMap<>();
         private int consecutiveRejectedToolCalls;
         private int latestRawContextTokens;
@@ -1289,5 +1663,6 @@ public class AgentRunExecutor {
         private int latestStaleMemoryCount;
         private int latestSelectedFileSummaryCount;
         private int latestSelectedRawSnippetCount;
+        private int workspaceMutationVersion;
     }
 }

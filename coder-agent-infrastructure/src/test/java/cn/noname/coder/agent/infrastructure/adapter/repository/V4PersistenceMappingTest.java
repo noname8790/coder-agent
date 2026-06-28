@@ -57,6 +57,28 @@ class V4PersistenceMappingTest {
     }
 
     @Test
+    void shouldDefineV45MemoryGovernanceColumnsGivenMysqlAndPgVectorSql() throws IOException {
+        String mysql = read("docs/dev-ops/mysql/sql/coder-agent.sql");
+        String mysqlMigration = read("docs/dev-ops/mysql/sql/coder-agent-v4_5.sql");
+        String pgvector = read("docs/dev-ops/postgresql/sql/coder-agent.sql");
+        String pgvectorMigration = read("docs/dev-ops/postgresql/sql/coder-agent-v4_5.sql");
+
+        assertAll(
+                () -> assertTrue(tableSection(mysql, "agent_memory_item").contains("`memory_type` varchar(64)")),
+                () -> assertTrue(tableSection(mysql, "agent_memory_item").contains("`scope` varchar(64)")),
+                () -> assertTrue(tableSection(mysql, "agent_memory_item").contains("`trust_score` decimal(8, 4)")),
+                () -> assertTrue(tableSection(mysql, "agent_memory_item").contains("`evidence_json` json")),
+                () -> assertTrue(mysql.contains("idx_memory_type_scope")),
+                () -> assertTrue(mysql.contains("idx_memory_trust")),
+                () -> assertTrue(mysqlMigration.contains("add_column_if_missing('agent_memory_item', 'memory_type'")),
+                () -> assertTrue(pgvector.contains("\"trust_score\" numeric(8, 4)")),
+                () -> assertTrue(pgvector.contains("idx_memory_chunk_trust")),
+                () -> assertTrue(pgvectorMigration.contains("ADD COLUMN IF NOT EXISTS \"trust_score\"")),
+                () -> assertTrue(pgvectorMigration.contains("idx_memory_chunk_file"))
+        );
+    }
+
+    @Test
     void shouldStoreOnlyEncryptedApiKeyGivenModelProviderTable() throws IOException {
         String modelProviderSql = tableSection(read("docs/dev-ops/mysql/sql/coder-agent.sql"), "agent_model_provider");
 

@@ -1,0 +1,27 @@
+package cn.noname.coder.agent.domain.tool.adapter.port;
+
+import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDefinition;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
+
+import java.util.List;
+
+/**
+ * 工具网关统一注册和执行首版四类本地工具。
+ */
+public interface IToolGateway {
+
+    List<ToolDefinition> definitions();
+
+    default List<ToolDefinition> definitions(AgentRun run, WorkspaceDescriptor workspace) {
+        return definitions();
+    }
+
+    ToolResult execute(String runId, WorkspaceDescriptor workspace, ToolInvocation invocation);
+
+    default ToolResult execute(AgentRun run, WorkspaceDescriptor workspace, ToolInvocation invocation) {
+        return execute(run.getRunId(), workspace, invocation);
+    }
+}

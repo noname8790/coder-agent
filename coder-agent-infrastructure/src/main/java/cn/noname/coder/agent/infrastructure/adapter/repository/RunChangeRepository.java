@@ -1,8 +1,8 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.RunChangeSet;
-import cn.noname.coder.agent.domain.agent.model.entity.RunFileChange;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IRunChangeRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunChangeSet;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunFileChange;
 import cn.noname.coder.agent.infrastructure.dao.IRunChangeSetDao;
 import cn.noname.coder.agent.infrastructure.dao.IRunFileChangeDao;
 import cn.noname.coder.agent.infrastructure.dao.po.RunChangeSetPO;

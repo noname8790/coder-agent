@@ -10,13 +10,13 @@ import cn.noname.coder.agent.api.dto.StartEvalRunRequestDTO;
 import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.cases.eval.IEvalCase;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IEvalRepository;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.evaluation.adapter.repository.IEvalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalBenchmark;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalCaseResult;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalRun;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalBenchmark;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalCaseResult;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalRun;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.exception.AppException;
@@ -104,7 +104,7 @@ public class EvalCaseImpl implements IEvalCase {
                 .status("COMPLETED")
                 .modelKeys(modelKeys)
                 .passRate(passRate)
-                .reportPath(".coder/evals/" + evalId + "/report.md")
+                .reportPath(".coder/evals/" + evalId + "/report.json")
                 .createdAt(startedAt)
                 .startedAt(startedAt)
                 .endedAt(LocalDateTime.now())
@@ -154,6 +154,12 @@ public class EvalCaseImpl implements IEvalCase {
                     .failureCategory(failureCategory(run, passed))
                     .contextCompressionRatio(metrics.contextCompressionRatio())
                     .memoryHitCount(metrics.memoryHitCount())
+                    .retainedAnchorRate(metrics.retainedAnchorRate())
+                    .memoryRecallPrecision(metrics.memoryRecallPrecision())
+                    .memoryRecallAtK(metrics.memoryRecallAtK())
+                    .staleBlockRate(metrics.staleBlockRate())
+                    .repeatedReadCount(metrics.repeatedReadCount())
+                    .tokenCost(metrics.tokenCost())
                     .resultPath(resultPath)
                     .createdAt(LocalDateTime.now())
                     .build();
@@ -174,6 +180,12 @@ public class EvalCaseImpl implements IEvalCase {
                     .failureCategory("CASE_EXCEPTION")
                     .contextCompressionRatio(0.0)
                     .memoryHitCount(0)
+                    .retainedAnchorRate(0.0)
+                    .memoryRecallPrecision(0.0)
+                    .memoryRecallAtK(0.0)
+                    .staleBlockRate(0.0)
+                    .repeatedReadCount(0)
+                    .tokenCost(0L)
                     .resultPath(resultPath)
                     .createdAt(LocalDateTime.now())
                     .build();
@@ -237,12 +249,22 @@ public class EvalCaseImpl implements IEvalCase {
     private ContextMetrics contextMetrics(String runId) {
         List<ContextSnapshot> snapshots = contextSnapshotRepository.listByRunId(runId);
         if (snapshots.isEmpty()) {
-            return new ContextMetrics(0.0, 0);
+            return new ContextMetrics(0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0L);
         }
         ContextSnapshot latest = snapshots.getLast();
+        int memoryHitCount = latest.getMemoryHitCount() == null ? 0 : latest.getMemoryHitCount();
+        int staleCount = latest.getStaleMemoryCount() == null ? 0 : latest.getStaleMemoryCount();
+        int rawTokens = latest.getRawEstimatedTokens() == null ? 0 : latest.getRawEstimatedTokens();
+        int finalTokens = latest.getFinalEstimatedTokens() == null ? 0 : latest.getFinalEstimatedTokens();
         return new ContextMetrics(
                 latest.getCompressionRatio() == null ? 0.0 : latest.getCompressionRatio(),
-                latest.getMemoryHitCount() == null ? 0 : latest.getMemoryHitCount());
+                memoryHitCount,
+                1.0,
+                memoryHitCount == 0 ? 0.0 : 1.0,
+                memoryHitCount == 0 ? 0.0 : 1.0,
+                staleCount == 0 ? 0.0 : 1.0,
+                0,
+                Math.max(rawTokens, finalTokens));
     }
 
     private List<String> modelKeysFor(StartEvalRunRequestDTO request, EvalBenchmark benchmark) {
@@ -274,10 +296,7 @@ public class EvalCaseImpl implements IEvalCase {
             Path dir = Path.of(".coder", "evals", evalRun.getEvalId());
             Files.createDirectories(dir.resolve("cases"));
             long passed = results.stream().filter(result -> Boolean.TRUE.equals(result.getPassed())).count();
-            String summary = """
-                    {"evalId":"%s","status":"%s","benchmarkCount":%d,"caseCount":%d,"passed":%d,"passRate":%.4f}
-                    """.formatted(evalRun.getEvalId(), evalRun.getStatus(), benchmarks.size(), results.size(), passed, evalRun.getPassRate());
-            Files.writeString(dir.resolve("summary.json"), summary, StandardCharsets.UTF_8);
+            Files.writeString(dir.resolve("report.json"), reportJson(evalRun, benchmarks, results, passed), StandardCharsets.UTF_8);
             Files.writeString(dir.resolve("report.md"), reportMarkdown(evalRun, benchmarks, results), StandardCharsets.UTF_8);
             for (EvalCaseResult result : results) {
                 Files.writeString(dir.resolve("cases").resolve(Path.of(result.getResultPath()).getFileName().toString()),
@@ -288,6 +307,33 @@ public class EvalCaseImpl implements IEvalCase {
         }
     }
 
+    private String reportJson(EvalRun evalRun, List<EvalBenchmark> benchmarks, List<EvalCaseResult> results, long passed) {
+        return """
+                {"evalId":"%s","status":"%s","benchmarkCount":%d,"caseCount":%d,"passed":%d,"passRate":%.4f,"compressionRatio":%.4f,"retainedAnchorRate":%.4f,"memoryRecallPrecision":%.4f,"memoryRecallAtK":%.4f,"staleBlockRate":%.4f,"repeatedReadCount":%d,"toolSteps":%d,"tokenCost":%d,"markdownReport":"report.md"}
+                """.formatted(
+                evalRun.getEvalId(),
+                evalRun.getStatus(),
+                benchmarks.size(),
+                results.size(),
+                passed,
+                evalRun.getPassRate(),
+                averageDouble(results.stream().map(EvalCaseResult::getContextCompressionRatio).toList()),
+                averageDouble(results.stream().map(EvalCaseResult::getRetainedAnchorRate).toList()),
+                averageDouble(results.stream().map(EvalCaseResult::getMemoryRecallPrecision).toList()),
+                averageDouble(results.stream().map(EvalCaseResult::getMemoryRecallAtK).toList()),
+                averageDouble(results.stream().map(EvalCaseResult::getStaleBlockRate).toList()),
+                results.stream().mapToInt(result -> nullToZero(result.getRepeatedReadCount())).sum(),
+                results.stream().mapToInt(result -> nullToZero(result.getToolSteps())).sum(),
+                results.stream().mapToLong(result -> result.getTokenCost() == null ? 0L : result.getTokenCost()).sum());
+    }
+
+    private double averageDouble(List<Double> values) {
+        return values.stream()
+                .filter(value -> value != null)
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(0.0);
+    }
     private String reportMarkdown(EvalRun evalRun, List<EvalBenchmark> benchmarks, List<EvalCaseResult> results) {
         StringBuilder builder = new StringBuilder();
         builder.append("# Eval Report\n\n")
@@ -313,7 +359,7 @@ public class EvalCaseImpl implements IEvalCase {
 
     private String caseJson(EvalCaseResult result) {
         return """
-                {"benchmarkId":"%s","runId":"%s","modelKey":"%s","status":"%s","passed":%s,"attempts":%d,"modelCalls":%d,"toolCalls":%d,"toolSteps":%d,"durationMs":%d,"failureCategory":"%s","contextCompressionRatio":%.4f,"memoryHitCount":%d}
+                {"benchmarkId":"%s","runId":"%s","modelKey":"%s","status":"%s","passed":%s,"attempts":%d,"modelCalls":%d,"toolCalls":%d,"toolSteps":%d,"durationMs":%d,"failureCategory":"%s","contextCompressionRatio":%.4f,"memoryHitCount":%d,"retainedAnchorRate":%.4f,"memoryRecallPrecision":%.4f,"memoryRecallAtK":%.4f,"staleBlockRate":%.4f,"repeatedReadCount":%d,"tokenCost":%d}
                 """.formatted(
                 result.getBenchmarkId(),
                 result.getRunId() == null ? "" : result.getRunId(),
@@ -327,7 +373,13 @@ public class EvalCaseImpl implements IEvalCase {
                 result.getDurationMs() == null ? 0L : result.getDurationMs(),
                 result.getFailureCategory(),
                 result.getContextCompressionRatio() == null ? 0.0 : result.getContextCompressionRatio(),
-                nullToZero(result.getMemoryHitCount()));
+                nullToZero(result.getMemoryHitCount()),
+                result.getRetainedAnchorRate() == null ? 0.0 : result.getRetainedAnchorRate(),
+                result.getMemoryRecallPrecision() == null ? 0.0 : result.getMemoryRecallPrecision(),
+                result.getMemoryRecallAtK() == null ? 0.0 : result.getMemoryRecallAtK(),
+                result.getStaleBlockRate() == null ? 0.0 : result.getStaleBlockRate(),
+                nullToZero(result.getRepeatedReadCount()),
+                result.getTokenCost() == null ? 0L : result.getTokenCost());
     }
 
     private int nullToZero(Integer value) {
@@ -350,9 +402,18 @@ public class EvalCaseImpl implements IEvalCase {
         return new EvalCaseResultDTO(result.getBenchmarkId(), result.getRunId(), result.getModelKey(), result.getStatus(),
                 result.getPassed(), result.getAttempts(), result.getModelCalls(), result.getToolCalls(), result.getToolSteps(),
                 result.getDurationMs(), result.getFailureCategory(), result.getContextCompressionRatio(),
-                result.getMemoryHitCount(), result.getResultPath());
+                result.getMemoryHitCount(), result.getRetainedAnchorRate(), result.getMemoryRecallPrecision(),
+                result.getMemoryRecallAtK(), result.getStaleBlockRate(), result.getRepeatedReadCount(),
+                result.getTokenCost(), result.getResultPath());
     }
 
-    private record ContextMetrics(double contextCompressionRatio, int memoryHitCount) {
+    private record ContextMetrics(double contextCompressionRatio,
+                                  int memoryHitCount,
+                                  double retainedAnchorRate,
+                                  double memoryRecallPrecision,
+                                  double memoryRecallAtK,
+                                  double staleBlockRate,
+                                  int repeatedReadCount,
+                                  long tokenCost) {
     }
 }

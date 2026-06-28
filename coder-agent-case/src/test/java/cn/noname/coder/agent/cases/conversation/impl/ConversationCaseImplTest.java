@@ -1,13 +1,37 @@
 package cn.noname.coder.agent.cases.conversation.impl;
 
 import cn.noname.coder.agent.cases.agent.DiffSummaryAssembler;
+import cn.noname.coder.agent.api.dto.UpdateConversationRequestDTO;
 import cn.noname.coder.agent.cases.memory.MemoryService;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.memory.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.memory.adapter.repository.IMemoryRepository;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryChunk;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryItem;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryRecall;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchHit;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchRequest;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.model.model.valobj.EmbeddingResponse;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.tool.model.entity.PermissionAudit;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolApprovalRequest;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IRunChangeRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunChangeSet;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunFileChange;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.domain.agent.adapter.repository.*;
 import cn.noname.coder.agent.domain.agent.model.entity.*;
-import cn.noname.coder.agent.domain.agent.model.valobj.*;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import org.junit.jupiter.api.Test;
@@ -18,6 +42,39 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConversationCaseImplTest {
+
+    @Test
+    void shouldUpdateConversationTitleGivenValidTitle() {
+        // Given 已存在默认标题会话
+        InMemoryConversationRepository conversationRepository = new InMemoryConversationRepository();
+        ConversationCaseImpl useCase = new ConversationCaseImpl(
+                conversationRepository,
+                new InMemoryRunRepository(),
+                new InMemoryContextSnapshotRepository(),
+                null,
+                new StubWorkspacePort(),
+                new NoopModelConfigPort(),
+                new InMemoryRecordRepository(),
+                new InMemoryToolApprovalRepository(),
+                new InMemoryRunChangeRepository(),
+                new InMemoryModelProviderRepository(),
+                org.mockito.Mockito.mock(cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort.class),
+                org.mockito.Mockito.mock(DiffSummaryAssembler.class));
+        conversationRepository.saveConversation(AgentConversation.builder()
+                .conversationId("conv_1")
+                .workspaceKey("repo-a")
+                .title("新对话")
+                .lastPermissionLevel(AgentPermissionLevel.DEFAULT)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
+
+        // When 更新标题
+        useCase.update("conv_1", new UpdateConversationRequestDTO("阅读仓库结构"));
+
+        // Then 标题持久化
+        assertEquals("阅读仓库结构", conversationRepository.findConversation("conv_1").orElseThrow().getTitle());
+    }
 
     @Test
     void shouldCascadeDeleteRunRecordsGivenConversationDeleted() {
@@ -99,6 +156,7 @@ class ConversationCaseImplTest {
 
         @Override
         public void updateConversation(AgentConversation conversation) {
+            conversations.put(conversation.getConversationId(), conversation);
         }
 
         @Override

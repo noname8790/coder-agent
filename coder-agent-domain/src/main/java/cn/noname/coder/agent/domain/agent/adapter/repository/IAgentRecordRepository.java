@@ -1,6 +1,7 @@
 package cn.noname.coder.agent.domain.agent.adapter.repository;
 
 import cn.noname.coder.agent.domain.agent.model.entity.*;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
 
 import java.util.Collection;
 import java.util.List;

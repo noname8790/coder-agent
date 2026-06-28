@@ -1,10 +1,10 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
-import cn.noname.coder.agent.domain.agent.model.entity.PermissionAudit;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.tool.model.entity.PermissionAudit;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
 import cn.noname.coder.agent.infrastructure.dao.IAgentConversationDao;
 import cn.noname.coder.agent.infrastructure.dao.IAgentMessageDao;
 import cn.noname.coder.agent.infrastructure.dao.IPermissionAuditDao;

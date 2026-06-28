@@ -6,7 +6,7 @@
     <parent>
         <groupId>cn.noname</groupId>
         <artifactId>coder-agent</artifactId>
-        <version>4.2.0</version>
+        <version>4.5.0</version>
     </parent>
     <artifactId>coder-agent-api</artifactId>
 

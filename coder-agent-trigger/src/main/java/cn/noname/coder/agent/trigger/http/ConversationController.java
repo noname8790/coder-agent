@@ -4,6 +4,7 @@ import cn.noname.coder.agent.api.dto.ConversationMessageDTO;
 import cn.noname.coder.agent.api.dto.ConversationResponseDTO;
 import cn.noname.coder.agent.api.dto.CreateConversationRequestDTO;
 import cn.noname.coder.agent.api.dto.CheckpointRollbackResponseDTO;
+import cn.noname.coder.agent.api.dto.UpdateConversationRequestDTO;
 import cn.noname.coder.agent.api.dto.UpdateConversationMessageRequestDTO;
 import cn.noname.coder.agent.cases.conversation.ICheckpointCase;
 import cn.noname.coder.agent.cases.conversation.IConversationCase;
@@ -37,6 +38,12 @@ public class ConversationController {
     @GetMapping("/{conversationId}")
     public Response<ConversationResponseDTO> query(@PathVariable("conversationId") String conversationId) {
         return Response.ok(conversationCase.query(conversationId));
+    }
+
+    @PatchMapping("/{conversationId}")
+    public Response<ConversationResponseDTO> update(@PathVariable("conversationId") String conversationId,
+                                                    @RequestBody UpdateConversationRequestDTO request) {
+        return Response.ok(conversationCase.update(conversationId, request));
     }
 
     @GetMapping("/{conversationId}/messages")

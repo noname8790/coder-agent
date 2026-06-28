@@ -115,7 +115,7 @@ public class AgentRunRepository implements IAgentRunRepository {
                 .conversationId(po.getConversationId())
                 .task(po.getTask())
                 .model(po.getModel())
-                .permissionLevel(cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel.parse(po.getPermissionLevel()))
+                .permissionLevel(cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel.parse(po.getPermissionLevel()))
                 .status(AgentRunStatus.valueOf(po.getStatus()))
                 .finalAnswer(po.getFinalAnswer())
                 .failureReason(po.getFailureReason())

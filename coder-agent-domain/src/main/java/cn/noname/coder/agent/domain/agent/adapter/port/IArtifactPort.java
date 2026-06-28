@@ -2,9 +2,9 @@ package cn.noname.coder.agent.domain.agent.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.tool.model.valobj.TestCommandReport;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 
 import java.util.List;
 import java.util.Map;

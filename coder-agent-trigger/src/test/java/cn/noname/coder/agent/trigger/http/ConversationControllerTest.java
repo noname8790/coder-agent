@@ -79,6 +79,22 @@ class ConversationControllerTest {
     }
 
     @Test
+    void shouldUpdateConversationTitleGivenConversationId() throws Exception {
+        // Given 会话存在
+        when(conversationCase.update(any(), any())).thenReturn(
+                new ConversationResponseDTO("conv_1", "demo", "阅读仓库结构", "glm-5",
+                        "DEFAULT", LocalDateTime.now(), LocalDateTime.now()));
+
+        // When 更新会话标题 / Then 返回新标题
+        mockMvc.perform(patch("/api/conversations/conv_1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"阅读仓库结构\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("阅读仓库结构"));
+        verify(conversationCase).update(any(), any());
+    }
+
+    @Test
     void shouldUpdateUserMessageGivenMessageId() throws Exception {
         // Given 用户消息存在
         when(conversationCase.updateMessage(any(), any(), any())).thenReturn(

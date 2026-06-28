@@ -2,7 +2,7 @@ package cn.noname.coder.agent.cases.agent.impl;
 
 import cn.noname.coder.agent.api.dto.PermissionLevelDTO;
 import cn.noname.coder.agent.cases.agent.IQueryPermissionLevelCase;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
 import org.springframework.stereotype.Service;
 
 import java.util.List;

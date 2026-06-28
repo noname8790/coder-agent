@@ -3,14 +3,14 @@ package cn.noname.coder.agent.cases.agent;
 import cn.noname.coder.agent.api.dto.RunChangeActionResponseDTO;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IRunChangeRepository;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IRunChangeRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.AuditEvent;
-import cn.noname.coder.agent.domain.agent.model.entity.RunChangeSet;
-import cn.noname.coder.agent.domain.agent.model.entity.RunFileChange;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunChangeSet;
+import cn.noname.coder.agent.domain.workspace.model.entity.RunFileChange;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.AuditEventType;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +26,9 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -45,11 +47,17 @@ public class RunChangeService implements IRunChangeCase {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
-        List<RunFileChange> files = new ArrayList<>();
+        Map<String, RunFileChange> merged = new LinkedHashMap<>();
+        for (RunFileChange existing : changeRepository.listFileChanges(run.getRunId())) {
+            merged.put(existing.getFilePath(), existing);
+        }
         boolean reversible = true;
         for (ChangedFile changedFile : changedFiles) {
             RunFileChange file = toFileChange(workspace, run, changedFile, now);
-            files.add(file);
+            merged.put(file.getFilePath(), file);
+        }
+        List<RunFileChange> files = new ArrayList<>(merged.values());
+        for (RunFileChange file : files) {
             reversible = reversible && Boolean.TRUE.equals(file.getReversible());
         }
         RunChangeSet changeSet = RunChangeSet.builder()
@@ -89,6 +97,50 @@ public class RunChangeService implements IRunChangeCase {
                 .filter(changeSet -> "REVERTED".equals(changeSet.getStatus()))
                 .map(RunChangeSet::getRunId)
                 .toList();
+    }
+
+    public List<String> recentWorkStatusSummaries(String conversationId, String currentRunId, int limit) {
+        if (!StringUtils.hasText(conversationId)) {
+            return List.of();
+        }
+        int max = Math.max(1, limit);
+        List<RunChangeSet> changeSets = changeRepository.listByConversationId(conversationId);
+        List<String> summaries = new ArrayList<>();
+        for (int i = changeSets.size() - 1; i >= 0 && summaries.size() < max; i--) {
+            RunChangeSet changeSet = changeSets.get(i);
+            if (changeSet == null || !StringUtils.hasText(changeSet.getRunId())
+                    || changeSet.getRunId().equals(currentRunId)) {
+                continue;
+            }
+            List<RunFileChange> files = changeRepository.listFileChanges(changeSet.getRunId());
+            summaries.add(formatWorkStatus(changeSet, files));
+        }
+        return summaries;
+    }
+
+    private String formatWorkStatus(RunChangeSet changeSet, List<RunFileChange> files) {
+        Map<String, Long> counts = files == null ? Map.of() : files.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        file -> StringUtils.hasText(file.getChangeType()) ? file.getChangeType().toUpperCase() : "UNKNOWN",
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()));
+        String paths = files == null || files.isEmpty()
+                ? "无文件记录"
+                : files.stream()
+                .map(RunFileChange::getFilePath)
+                .filter(StringUtils::hasText)
+                .limit(5)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return "- runId=%s, status=%s, files=%d, ADD=%d, MODIFY=%d, DELETE=%d, OVERWRITE=%d, paths=%s"
+                .formatted(
+                        changeSet.getRunId(),
+                        StringUtils.hasText(changeSet.getStatus()) ? changeSet.getStatus() : "UNKNOWN",
+                        files == null ? 0 : files.size(),
+                        counts.getOrDefault("ADD", 0L),
+                        counts.getOrDefault("MODIFY", 0L),
+                        counts.getOrDefault("DELETE", 0L),
+                        counts.getOrDefault("OVERWRITE", 0L),
+                        paths);
     }
 
     private RunChangeActionResponseDTO validate(String runId, boolean revert) {

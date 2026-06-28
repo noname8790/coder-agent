@@ -66,9 +66,9 @@ public class AgentRuntimeProperties {
 
     @Data
     public static class Budget {
-        private int maxSteps = 25;
-        private int maxModelCalls = 25;
-        private int maxToolCalls = 50;
+        private int maxSteps = 50;
+        private int maxModelCalls = 50;
+        private int maxToolCalls = 100;
         private int timeoutSeconds = 300;
         private int maxConcurrentRuns = 2;
     }
@@ -109,8 +109,9 @@ public class AgentRuntimeProperties {
                 "java -version"
         ));
         private List<String> dangerousTokens = new ArrayList<>(List.of(
-                "&&", "||", "|", ">", "<", ";", "`", "$(", " rm ", " del ", " rmdir ",
-                "Remove-Item", "Move-Item", "git push"
+                " rm ", " del ", " rmdir ", "Remove-Item", "Move-Item",
+                "Format-Volume", " format ", "format.com", " icacls ", " takeown ",
+                "git push"
         ));
     }
 
@@ -140,24 +141,38 @@ public class AgentRuntimeProperties {
     @Data
     public static class Memory {
         private boolean enabled = false;
-        private int topK = 8;
+        private int candidateTopK = 24;
+        private int selectedTopK = 8;
+        private int topK = 24;
         private double minScore = 0.35;
-        private int maxChunksPerRun = 20;
+        private double minTrustScore = 0.65;
+        private int maxChunksPerRun = 12;
         private int maxEmbeddingCallsPerRun = 8;
-        private int maxAutoSummaryFilesPerRun = 6;
-        private int maxFileBytesForSummary = 65536;
+        private int maxAutoSummaryFilesPerRun = 12;
+        private int maxFileBytesForSummary = 262144;
+        private int chunkMaxTokens = 1200;
+        private int chunkOverlapTokens = 120;
     }
 
     @Data
     public static class Context {
-        private int maxInputTokens = 32000;
+        private boolean compressionEnabled = true;
+        private int maxContextTokens = 131072;
+        private int maxInputTokens = 106496;
+        private int maxOutputTokens = 8192;
+        private int safetyReserveTokens = 16384;
         private int systemReserveTokens = 2000;
-        private int memoryBudgetTokens = 6000;
-        private int fileSummaryBudgetTokens = 6000;
-        private int rawSnippetBudgetTokens = 8000;
-        private int toolResultBudgetTokens = 4000;
-        private int recentMessageBudgetTokens = 4000;
-        private int outputReserveTokens = 4000;
+        private int prefixBudgetTokens = 8192;
+        private int workingMemoryBudgetTokens = 12288;
+        private int memoryBudgetTokens = 12288;
+        private int fileSummaryBudgetTokens = 16384;
+        private int rawSnippetBudgetTokens = 32768;
+        private int toolResultBudgetTokens = 20480;
+        private int recentMessageBudgetTokens = 16384;
+        private int runTraceBudgetTokens = 8192;
+        private int outputReserveTokens = 8192;
+        private int compressionMaxModelCallsPerRun = 2;
+        private int compressionMaxTokensPerRun = 8192;
     }
 
     @Data

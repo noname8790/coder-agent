@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.tools;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.CallStatus;
 
 import java.io.BufferedReader;

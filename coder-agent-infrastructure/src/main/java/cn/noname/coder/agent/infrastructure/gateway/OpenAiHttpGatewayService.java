@@ -1,6 +1,6 @@
 package cn.noname.coder.agent.infrastructure.gateway;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
 import cn.noname.coder.agent.types.exception.AppException;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;

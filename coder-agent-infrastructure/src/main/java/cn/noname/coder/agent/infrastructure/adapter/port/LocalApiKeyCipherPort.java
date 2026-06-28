@@ -1,6 +1,6 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IApiKeyCipherPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IApiKeyCipherPort;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 

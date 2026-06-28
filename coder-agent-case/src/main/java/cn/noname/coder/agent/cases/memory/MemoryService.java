@@ -1,39 +1,45 @@
 package cn.noname.coder.agent.cases.memory;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IEmbeddingGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IMemoryRepository;
+import cn.noname.coder.agent.domain.model.adapter.port.IEmbeddingGateway;
+import cn.noname.coder.agent.domain.memory.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.memory.adapter.repository.IMemoryRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryChunk;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryItem;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryRecall;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextCandidate;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextLayer;
-import cn.noname.coder.agent.domain.agent.model.valobj.EmbeddingRequest;
-import cn.noname.coder.agent.domain.agent.model.valobj.EmbeddingResponse;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchHit;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchRequest;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryChunk;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryItem;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryRecall;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextCandidate;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextLayer;
+import cn.noname.coder.agent.domain.model.model.valobj.EmbeddingRequest;
+import cn.noname.coder.agent.domain.model.model.valobj.EmbeddingResponse;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchHit;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchRequest;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +53,7 @@ public class MemoryService {
     private final IVectorMemoryPort vectorMemoryPort;
     private final IEmbeddingGateway embeddingGateway;
     private final AgentRuntimeProperties properties;
+    private final MemorySummaryService memorySummaryService;
     private final ConcurrentMap<String, AtomicInteger> embeddingCallsByRun = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AtomicInteger> autoSummaryFilesByRun = new ConcurrentHashMap<>();
 
@@ -54,14 +61,72 @@ public class MemoryService {
                          IVectorMemoryPort vectorMemoryPort,
                          IEmbeddingGateway embeddingGateway,
                          AgentRuntimeProperties properties) {
+        this(memoryRepository, vectorMemoryPort, embeddingGateway, properties, new MemorySummaryService(null));
+    }
+
+    @Autowired
+    public MemoryService(IMemoryRepository memoryRepository,
+                         IVectorMemoryPort vectorMemoryPort,
+                         IEmbeddingGateway embeddingGateway,
+                         AgentRuntimeProperties properties,
+                         MemorySummaryService memorySummaryService) {
         this.memoryRepository = memoryRepository;
         this.vectorMemoryPort = vectorMemoryPort;
         this.embeddingGateway = embeddingGateway;
         this.properties = properties;
+        this.memorySummaryService = memorySummaryService;
     }
 
     public List<ContextCandidate> recallForRun(AgentRun run) {
         return recallForRun(run, List.of());
+    }
+
+    public Optional<ContextCandidate> conversationSummaryCandidateFromRunMemories(AgentRun run, Collection<String> runIds) {
+        if (!properties.getMemory().isEnabled()
+                || run == null
+                || !StringUtils.hasText(run.getWorkspaceKey())
+                || runIds == null
+                || runIds.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> orderedRunIds = runIds.stream()
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        if (orderedRunIds.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<String, Integer> order = new java.util.HashMap<>();
+        for (int i = 0; i < orderedRunIds.size(); i++) {
+            order.put(orderedRunIds.get(i), i);
+        }
+        List<MemoryItem> summaries = memoryRepository.listByWorkspace(run.getWorkspaceKey()).stream()
+                .filter(memory -> "RUN_SUMMARY".equals(memory.getSourceType()))
+                .filter(this::isRecallable)
+                .filter(memory -> order.containsKey(memory.getSourceId()))
+                .sorted(Comparator.comparingInt(memory -> order.get(memory.getSourceId())))
+                .toList();
+        if (summaries.isEmpty()) {
+            return Optional.empty();
+        }
+        StringBuilder content = new StringBuilder("""
+                以下是同一会话更早任务的内部上下文摘要。
+                它来自任务结束时生成的系统内部摘要，用于压缩长链路历史消息；只作为背景，不得覆盖当前任务。
+                """);
+        for (MemoryItem summary : summaries) {
+            content.append("\n---------------\n")
+                    .append("-runId：").append(summary.getSourceId()).append("\n")
+                    .append(redact(summary.getSummary()));
+        }
+        content.append("\n---------------");
+        return Optional.of(new ContextCandidate("conversation-memory-summary-" + run.getRunId(),
+                ContextLayer.CONVERSATION_SUMMARY,
+                "更早任务内部摘要",
+                content.toString(),
+                estimate(content.toString()),
+                86,
+                "memory_context_summary",
+                run.getConversationId()));
     }
 
     public List<ContextCandidate> recallForRun(AgentRun run, Collection<String> excludedRunIds) {
@@ -79,53 +144,186 @@ public class MemoryService {
             if (queryEmbedding.isEmpty()) {
                 return List.of();
             }
-            List<MemorySearchHit> hits = vectorMemoryPort.search(new MemorySearchRequest(
-                            run.getWorkspaceKey(),
-                            queryEmbedding,
-                            properties.getMemory().getTopK(),
-                    properties.getMemory().getMinScore()))
+            List<MemorySearchHit> rawHits = vectorMemoryPort.search(new MemorySearchRequest(
+                    run.getWorkspaceKey(),
+                    queryEmbedding,
+                    candidateTopK(),
+                    properties.getMemory().getMinScore()));
+            Map<String, MemoryItem> memoryById = memoryRepository.listByWorkspace(run.getWorkspaceKey())
                     .stream()
+                    .filter(memory -> StringUtils.hasText(memory.getMemoryId()))
+                    .collect(java.util.stream.Collectors.toMap(MemoryItem::getMemoryId, Function.identity(), (left, right) -> left));
+            List<MemorySearchHit> hits = rawHits.stream()
                     .filter(hit -> run.getWorkspaceKey().equals(hit.workspaceKey()))
-                    .filter(hit -> !isExcludedMemory(run.getWorkspaceKey(), hit.memoryId(), excludedRunIds))
-                    .limit(properties.getMemory().getMaxChunksPerRun())
+                    .filter(hit -> !isExcludedMemory(hit.memoryId(), memoryById, excludedRunIds))
+                    .filter(hit -> isRecallable(memoryById.get(hit.memoryId())))
+                    .sorted(Comparator.comparingDouble((MemorySearchHit hit) -> trustScore(memoryById.get(hit.memoryId())))
+                            .reversed()
+                            .thenComparing(Comparator.comparingDouble(MemorySearchHit::score).reversed()))
+                    .limit(selectedTopK())
                     .toList();
-            saveRecall(run, hits);
-            return hits.stream()
-                    .map(hit -> new ContextCandidate(
-                            "memory-" + hit.chunkId(),
-                            ContextLayer.MEMORY_RECALL,
-                            "记忆召回 " + hit.memoryId(),
-                            redact(hit.content()),
-                            estimate(hit.content()),
-                            (int) Math.round(hit.score() * 100),
-                            "memory",
-                            hit.memoryId()))
-                    .toList();
+            List<ContextCandidate> staleCandidates = staleCandidates(run, rawHits, memoryById, excludedRunIds);
+            saveRecall(run, rawHits.size(), hits);
+            if (hits.isEmpty()) {
+                List<ContextCandidate> fallback = new ArrayList<>(staleCandidates);
+                fallback.addAll(recentRunSummaryCandidates(run, memoryById, excludedRunIds));
+                return fallback;
+            }
+            List<ContextCandidate> candidates = new ArrayList<>(hits.stream()
+                    .map(hit -> toContextCandidate(hit, memoryById.get(hit.memoryId())))
+                    .toList());
+            candidates.addAll(staleCandidates);
+            return candidates;
         } catch (Exception e) {
             log.warn("记忆召回降级 runId={} workspaceKey={} reason={}", run.getRunId(), run.getWorkspaceKey(), e.getMessage());
             return List.of();
         }
     }
 
-    private boolean isExcludedMemory(String workspaceKey, String memoryId, Collection<String> excludedRunIds) {
+    private List<ContextCandidate> recentRunSummaryCandidates(AgentRun run,
+                                                              Map<String, MemoryItem> memoryById,
+                                                              Collection<String> excludedRunIds) {
+        if (memoryById == null || memoryById.isEmpty()) {
+            return List.of();
+        }
+        return memoryById.values().stream()
+                .filter(memory -> "RUN_SUMMARY".equals(memory.getSourceType()))
+                .filter(this::isRecallable)
+                .filter(memory -> !isExcludedMemory(memory.getMemoryId(), memoryById, excludedRunIds))
+                .sorted(Comparator.comparing(MemoryItem::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(Math.max(1, Math.min(3, selectedTopK())))
+                .map(this::toRecentRunSummaryCandidate)
+                .toList();
+    }
+
+    private List<ContextCandidate> staleCandidates(AgentRun run,
+                                                   List<MemorySearchHit> rawHits,
+                                                   Map<String, MemoryItem> memoryById,
+                                                   Collection<String> excludedRunIds) {
+        return rawHits.stream()
+                .filter(hit -> run.getWorkspaceKey().equals(hit.workspaceKey()))
+                .filter(hit -> !isExcludedMemory(hit.memoryId(), memoryById, excludedRunIds))
+                .filter(hit -> isStale(memoryById.get(hit.memoryId())))
+                .map(hit -> toStaleContextCandidate(hit, memoryById.get(hit.memoryId())))
+                .toList();
+    }
+
+    private ContextCandidate toRecentRunSummaryCandidate(MemoryItem memory) {
+        String content = """
+                WORKSPACE_RECENT_RUN_MEMORY
+                这是同一 workspace 的近期任务记忆，可用于跨会话延续和避免重复操作。
+                sourceId=%s
+                summary=%s
+                """.formatted(memory.getSourceId(), redact(memory.getSummary()));
+        return new ContextCandidate(
+                "memory-recent-run-" + memory.getMemoryId(),
+                ContextLayer.MEMORY_RECALL,
+                "近期任务记忆 " + memory.getSourceId(),
+                content,
+                estimate(content),
+                86,
+                memory == null ? "memory" : memory.getSourceType(),
+                memory.getMemoryId(),
+                scope(memory),
+                memory.getFreshnessStatus(),
+                trustScore(memory),
+                true,
+                evidenceRefs(memory),
+                false,
+                null);
+    }
+
+    private boolean isExcludedMemory(String memoryId, Map<String, MemoryItem> memoryById, Collection<String> excludedRunIds) {
         if (excludedRunIds == null || excludedRunIds.isEmpty() || !StringUtils.hasText(memoryId)) {
             return false;
         }
         Set<String> excluded = new HashSet<>(excludedRunIds);
-        return memoryRepository.listByWorkspace(workspaceKey)
-                .stream()
-                .filter(memory -> memoryId.equals(memory.getMemoryId()))
-                .map(MemoryItem::getSourceId)
-                .filter(StringUtils::hasText)
-                .anyMatch(sourceId -> excluded.stream().anyMatch(runId ->
-                        sourceId.equals(runId) || sourceId.startsWith(runId + ":")));
+        MemoryItem memory = memoryById.get(memoryId);
+        if (memory == null || !StringUtils.hasText(memory.getSourceId())) {
+            return false;
+        }
+        String sourceId = memory.getSourceId();
+        return excluded.stream().anyMatch(runId -> sourceId.equals(runId) || sourceId.startsWith(runId + ":"));
     }
 
+    private boolean isRecallable(MemoryItem memory) {
+        return memory != null
+                && "FRESH".equals(memory.getFreshnessStatus())
+                && trustScore(memory) >= properties.getMemory().getMinTrustScore();
+    }
+
+    private boolean isStale(MemoryItem memory) {
+        return memory != null && "STALE".equals(memory.getFreshnessStatus());
+    }
+
+    private ContextCandidate toContextCandidate(MemorySearchHit hit, MemoryItem memory) {
+        return new ContextCandidate(
+                "memory-" + hit.chunkId(),
+                ContextLayer.MEMORY_RECALL,
+                "记忆召回 " + hit.memoryId(),
+                redact(hit.content()),
+                estimate(hit.content()),
+                (int) Math.round(hit.score() * 100),
+                memory == null ? "memory" : memory.getSourceType(),
+                hit.memoryId(),
+                scope(memory),
+                memory == null ? "UNKNOWN" : memory.getFreshnessStatus(),
+                trustScore(memory),
+                true,
+                evidenceRefs(memory),
+                false,
+                null);
+    }
+
+    private ContextCandidate toStaleContextCandidate(MemorySearchHit hit, MemoryItem memory) {
+        return new ContextCandidate(
+                "memory-stale-" + hit.chunkId(),
+                ContextLayer.MEMORY_RECALL,
+                "过期记忆 " + hit.memoryId(),
+                redact(hit.content()),
+                estimate(hit.content()),
+                0,
+                memory == null ? "memory" : memory.getSourceType(),
+                hit.memoryId(),
+                scope(memory),
+                "STALE",
+                trustScore(memory),
+                true,
+                evidenceRefs(memory),
+                false,
+                cn.noname.coder.agent.domain.context.model.valobj.ContextCutReason.STALE);
+    }
+
+    private List<String> evidenceRefs(MemoryItem memory) {
+        if (memory == null || !StringUtils.hasText(memory.getEvidenceJson())) {
+            return memory == null || !StringUtils.hasText(memory.getSourceId()) ? List.of() : List.of(memory.getSourceId());
+        }
+        return List.of(memory.getEvidenceJson());
+    }
+
+    private String scope(MemoryItem memory) {
+        return memory == null || !StringUtils.hasText(memory.getScope()) ? "workspace" : memory.getScope();
+    }
+
+    private double trustScore(MemoryItem memory) {
+        return memory == null || memory.getTrustScore() == null ? 0.8 : memory.getTrustScore();
+    }
+
+    private int candidateTopK() {
+        int configured = properties.getMemory().getCandidateTopK();
+        return configured > 0 ? configured : properties.getMemory().getTopK();
+    }
+
+    private int selectedTopK() {
+        int configured = properties.getMemory().getSelectedTopK();
+        int selected = configured > 0 ? configured : properties.getMemory().getMaxChunksPerRun();
+        return Math.max(1, Math.min(selected, properties.getMemory().getMaxChunksPerRun()));
+    }
     public void rememberRunSummary(AgentRun run) {
         if (!properties.getMemory().isEnabled() || run == null) {
             return;
         }
-        String summary = runSummary(run);
+        String summary = memorySummaryService.summarizeRun(run);
         if (StringUtils.hasText(summary)) {
             saveMemory(run.getWorkspaceKey(), "RUN_SUMMARY", run.getRunId(), null, summary);
         }
@@ -187,8 +385,8 @@ public class MemoryService {
             return false;
         }
         memoryRepository.markFileMemoriesStale(workspaceKey, filePath, currentContentHash);
-        staleMemoryIds.forEach(memoryId -> vectorMemoryPort.markStale(workspaceKey, memoryId));
-        log.info("文件摘要已标记 stale workspaceKey={} filePath={} staleCount={}", workspaceKey, filePath, staleMemoryIds.size());
+        vectorMemoryPort.deleteByMemoryIds(workspaceKey, staleMemoryIds);
+        log.info("文件旧记忆已删除 workspaceKey={} filePath={} staleCount={}", workspaceKey, filePath, staleMemoryIds.size());
         return true;
     }
 
@@ -210,20 +408,27 @@ public class MemoryService {
                     .contentHash(hash)
                     .fileMtime(fileMtime)
                     .summaryVersion(SUMMARY_VERSION)
+                    .memoryType(memoryType(sourceType))
+                    .scope(memoryScope(sourceType))
                     .title(sourceType + ":" + sourceId)
                     .summary(safeSummary)
-                    .metadataJson("{\"summaryVersion\":\"" + SUMMARY_VERSION + "\"}")
+                    .metadataJson("{\"summaryVersion\":\"" + SUMMARY_VERSION
+                            + "\",\"memoryType\":\"" + memoryType(sourceType)
+                            + "\",\"trustScore\":" + trustScoreFor(sourceType) + "}")
+                    .trustScore(trustScoreFor(sourceType))
+                    .evidenceJson(evidenceJson(sourceType, sourceId, filePath, hash))
                     .freshnessStatus("FRESH")
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
             memoryRepository.saveMemory(item);
-            List<Double> embedding = embedForRun(sourceId, safeSummary)
-                    .embeddings()
-                    .stream()
-                    .findFirst()
-                    .orElse(List.of());
-            if (!embedding.isEmpty()) {
+            List<String> chunks = splitIntoChunks(safeSummary);
+            List<List<Double>> embeddings = embedForRun(sourceId, chunks).embeddings();
+            for (int i = 0; i < chunks.size() && i < embeddings.size(); i++) {
+                List<Double> embedding = embeddings.get(i);
+                if (embedding == null || embedding.isEmpty()) {
+                    continue;
+                }
                 vectorMemoryPort.saveChunk(MemoryChunk.builder()
                         .chunkId("chk_" + UUID.randomUUID().toString().replace("-", ""))
                         .workspaceKey(workspaceKey)
@@ -232,8 +437,9 @@ public class MemoryService {
                         .sourceId(sourceId)
                         .filePath(filePath)
                         .contentHash(hash)
+                        .trustScore(item.getTrustScore())
                         .freshnessStatus("FRESH")
-                        .content(safeSummary)
+                        .content(chunks.get(i))
                         .metadataJson(item.getMetadataJson())
                         .embedding(embedding)
                         .createdAt(LocalDateTime.now())
@@ -246,6 +452,42 @@ public class MemoryService {
         }
     }
 
+    private String memoryType(String sourceType) {
+        if ("FILE_SUMMARY".equals(sourceType)) {
+            return "FILE_MEMORY";
+        }
+        if ("RUN_SUMMARY".equals(sourceType)) {
+            return "RUN_OBSERVATION";
+        }
+        if ("TOOL_EDIT".equals(sourceType) || "TASK_SUMMARY".equals(sourceType)) {
+            return "TASK_MEMORY";
+        }
+        return "PROJECT_MEMORY";
+    }
+
+    private String memoryScope(String sourceType) {
+        if ("FILE_SUMMARY".equals(sourceType) || "PROJECT_MEMORY".equals(sourceType)) {
+            return "workspace";
+        }
+        return "run";
+    }
+
+    private double trustScoreFor(String sourceType) {
+        if ("FILE_SUMMARY".equals(sourceType) || "TOOL_EDIT".equals(sourceType)) {
+            return 0.95;
+        }
+        if ("RUN_SUMMARY".equals(sourceType)) {
+            return 0.85;
+        }
+        return 0.8;
+    }
+
+    private String evidenceJson(String sourceType, String sourceId, String filePath, String contentHash) {
+        return "{\"sourceType\":\"" + escape(sourceType)
+                + "\",\"sourceId\":\"" + escape(sourceId)
+                + "\",\"filePath\":\"" + escape(filePath)
+                + "\",\"contentHash\":\"" + escape(contentHash) + "\"}";
+    }
     private void rememberReadFile(AgentRun run, ToolInvocation invocation, ToolResult result) {
         String filePath = parseJsonString(invocation.argumentsJson(), "path");
         String content = result.fullOutput();
@@ -261,7 +503,8 @@ public class MemoryService {
             return;
         }
         refreshFreshness(run.getWorkspaceKey(), filePath, contentHash);
-        saveFileMemory(run.getWorkspaceKey(), filePath, filePath, contentHash, null, summarizeFile(filePath, content));
+        saveFileMemory(run.getWorkspaceKey(), filePath, filePath, contentHash, null,
+                memorySummaryService.summarizeFile(run, filePath, content));
     }
 
     private void rememberSearchResult(AgentRun run, ToolInvocation invocation, ToolResult result) {
@@ -300,45 +543,41 @@ public class MemoryService {
                     changedFile.relativePath(),
                     changeHash,
                     null,
-                    summarizeChangedFile(run, invocation, changedFile, content));
+                    memorySummaryService.summarizeEdit(run, invocation, changedFile, content));
         }
     }
 
-    private String summarizeChangedFile(AgentRun run, ToolInvocation invocation, ChangedFile changedFile, String content) {
-        String changeType = StringUtils.hasText(changedFile.changeType()) ? changedFile.changeType() : "UNKNOWN";
-        String action = switch (changeType) {
-            case "ADDED", "CREATE", "CREATED" -> "新增文件";
-            case "MODIFIED", "UPDATE", "UPDATED" -> "修改文件";
-            case "DELETED", "DELETE", "REMOVED" -> "删除文件";
-            default -> "文件变更";
-        };
-        String preview = StringUtils.hasText(content) ? abbreviate(redact(content).strip(), 1200) : "无文件内容快照";
-        return """
-                任务：%s
-                工具：%s
-                变更：%s
-                文件：%s
-                beforeHash=%s
-                afterHash=%s
-                内容摘要：
-                %s
-                """.formatted(
-                run.getTask(),
-                invocation == null ? "" : invocation.name(),
-                action,
-                changedFile.relativePath(),
-                changedFile.beforeHash(),
-                changedFile.afterHash(),
-                preview);
+    private EmbeddingResponse embedForRun(String runKey, String text) {
+        return embedForRun(runKey, List.of(text));
     }
 
-    private EmbeddingResponse embedForRun(String runKey, String text) {
+    private EmbeddingResponse embedForRun(String runKey, List<String> texts) {
         String key = runKey == null ? "global" : runKey;
         int used = embeddingCallsByRun.computeIfAbsent(key, ignored -> new AtomicInteger()).incrementAndGet();
         if (used > properties.getMemory().getMaxEmbeddingCallsPerRun()) {
             throw new IllegalStateException("EMBEDDING_BUDGET_EXHAUSTED");
         }
-        return embeddingGateway.embed(new EmbeddingRequest(properties.getEmbedding().getModel(), List.of(text)));
+        return embeddingGateway.embed(new EmbeddingRequest(properties.getEmbedding().getModel(), texts));
+    }
+
+    private List<String> splitIntoChunks(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        int maxChars = Math.max(1, properties.getMemory().getChunkMaxTokens()) * 4;
+        int overlapChars = Math.min(maxChars - 1, Math.max(0, properties.getMemory().getChunkOverlapTokens()) * 4);
+        int maxChunks = Math.max(1, properties.getMemory().getMaxChunksPerRun());
+        List<String> chunks = new ArrayList<>();
+        int start = 0;
+        while (start < text.length() && chunks.size() < maxChunks) {
+            int end = Math.min(text.length(), start + maxChars);
+            chunks.add(text.substring(start, end));
+            if (end >= text.length()) {
+                break;
+            }
+            start = Math.max(start + 1, end - overlapChars);
+        }
+        return chunks;
     }
 
     private boolean consumeAutoSummaryBudget(String runId) {
@@ -361,45 +600,6 @@ public class MemoryService {
                 || content.contains("-----BEGIN ") && content.contains("PRIVATE KEY-----");
     }
 
-    private String summarizeFile(String filePath, String content) {
-        String preview = abbreviate(redact(content).strip(), 3000);
-        String language = detectLanguage(filePath);
-        String symbols = extractLikelySymbols(content);
-        return """
-                文件：%s
-                语言：%s
-                用途：根据读取内容自动生成的文件摘要。
-                主要符号：%s
-                行为摘要：
-                %s
-                风险：自动摘要，后续如文件 hash 变化会标记 stale。
-                """.formatted(filePath, language, symbols, preview);
-    }
-
-    private String detectLanguage(String filePath) {
-        String lower = filePath.toLowerCase();
-        if (lower.endsWith(".java")) return "Java";
-        if (lower.endsWith(".ts") || lower.endsWith(".tsx")) return "TypeScript";
-        if (lower.endsWith(".js") || lower.endsWith(".jsx")) return "JavaScript";
-        if (lower.endsWith(".md")) return "Markdown";
-        if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "YAML";
-        if (lower.endsWith(".sql")) return "SQL";
-        return "Text";
-    }
-
-    private String extractLikelySymbols(String content) {
-        Matcher matcher = Pattern.compile("\\b(class|interface|record|enum|function|const|let|def)\\s+([A-Za-z_][A-Za-z0-9_]*)")
-                .matcher(content == null ? "" : content);
-        StringBuilder symbols = new StringBuilder();
-        while (matcher.find() && symbols.length() < 300) {
-            if (!symbols.isEmpty()) {
-                symbols.append(", ");
-            }
-            symbols.append(matcher.group(2));
-        }
-        return symbols.isEmpty() ? "未识别" : symbols.toString();
-    }
-
     private String parseJsonString(String json, String field) {
         if (json == null) {
             return "";
@@ -408,7 +608,7 @@ public class MemoryService {
         return matcher.find() ? matcher.group(1).replace("\\\"", "\"").replace("\\\\", "\\") : "";
     }
 
-    private void saveRecall(AgentRun run, List<MemorySearchHit> hits) {
+    private void saveRecall(AgentRun run, int candidateCount, List<MemorySearchHit> hits) {
         try {
             memoryRepository.saveRecall(MemoryRecall.builder()
                     .recallId("recall_" + UUID.randomUUID().toString().replace("-", ""))
@@ -419,23 +619,14 @@ public class MemoryService {
                     .minScore(properties.getMemory().getMinScore())
                     .hitCount(hits.size())
                     .selectedCount(hits.size())
+                    .candidateCount(candidateCount)
+                    .filteredCount(Math.max(0, candidateCount - hits.size()))
                     .detailJson(toDetailJson(hits))
                     .createdAt(LocalDateTime.now())
                     .build());
         } catch (Exception e) {
             log.warn("记忆召回记录写入失败 runId={} reason={}", run.getRunId(), e.getMessage());
         }
-    }
-
-    private String runSummary(AgentRun run) {
-        String visibleResult = StringUtils.hasText(run.getFinalAnswer()) ? run.getFinalAnswer() : run.getFailureReason();
-        if (!StringUtils.hasText(visibleResult)) {
-            return "";
-        }
-        return "任务：" + run.getTask()
-                + "\n状态：" + run.getStatus()
-                + "\n模型：" + run.getModel()
-                + "\n结论：" + visibleResult;
     }
 
     private String toDetailJson(List<MemorySearchHit> hits) {

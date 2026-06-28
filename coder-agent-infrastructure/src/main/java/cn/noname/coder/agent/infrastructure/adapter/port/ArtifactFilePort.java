@@ -3,10 +3,10 @@ package cn.noname.coder.agent.infrastructure.adapter.port;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ChangedFile;
-import cn.noname.coder.agent.domain.agent.model.valobj.TestCommandReport;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.tool.model.valobj.TestCommandReport;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.ArtifactType;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -234,9 +234,8 @@ public class ArtifactFilePort implements IArtifactPort {
         for (int i = prefix; i < afterEnd; i++) {
             appendPatchLine(patch, "+", i + 1, after.get(i));
         }
-        int contextEnd = Math.max(contextBeforeEnd, contextAfterEnd);
-        for (int i = Math.max(beforeEnd, afterEnd); i < contextEnd && i < before.size(); i++) {
-            appendPatchLine(patch, " ", i + 1, before.get(i));
+        for (int i = afterEnd; i < contextAfterEnd && i < after.size(); i++) {
+            appendPatchLine(patch, " ", i + 1, after.get(i));
         }
         return patch.toString().stripTrailing();
     }

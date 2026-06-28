@@ -1,10 +1,10 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IApiKeyCipherPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.adapter.port.IApiKeyCipherPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;

@@ -4,7 +4,7 @@ import cn.noname.coder.agent.api.dto.WorkspaceListResponseDTO;
 import cn.noname.coder.agent.api.dto.WorkspaceResponseDTO;
 import cn.noname.coder.agent.cases.workspace.IQueryWorkspaceCase;
 import cn.noname.coder.agent.cases.workspace.WorkspaceAssembler;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IWorkspaceRepository;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

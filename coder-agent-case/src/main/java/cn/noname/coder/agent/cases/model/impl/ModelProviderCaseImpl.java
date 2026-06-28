@@ -5,11 +5,11 @@ import cn.noname.coder.agent.api.dto.ModelProviderListResponseDTO;
 import cn.noname.coder.agent.api.dto.ModelProviderRequestDTO;
 import cn.noname.coder.agent.api.dto.ModelProviderResponseDTO;
 import cn.noname.coder.agent.cases.model.IModelProviderCase;
-import cn.noname.coder.agent.domain.agent.adapter.port.IApiKeyCipherPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IApiKeyCipherPort;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IModelProviderRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ModelProvider;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
+import cn.noname.coder.agent.domain.model.adapter.repository.IModelProviderRepository;
+import cn.noname.coder.agent.domain.model.model.entity.ModelProvider;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextBudget;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.exception.AppException;
 import lombok.RequiredArgsConstructor;
@@ -72,9 +72,15 @@ public class ModelProviderCaseImpl implements IModelProviderCase {
     public ModelProviderResponseDTO update(String modelKey, ModelProviderRequestDTO request) {
         ModelProvider existing = mustFind(modelKey);
         validate(request, false);
+        String nextModelKey = StringUtils.hasText(request.modelKey()) ? request.modelKey().trim() : existing.getModelKey();
+        if (!existing.getModelKey().equals(nextModelKey)) {
+            repository.findByModelKey(nextModelKey).ifPresent(conflict -> {
+                throw new AppException("MODEL_ALREADY_EXISTS", "模型配置已存在：" + nextModelKey);
+            });
+        }
         ModelProvider updated = fromRequest(request, existing);
         updated.setId(existing.getId());
-        updated.setModelKey(existing.getModelKey());
+        updated.setModelKey(nextModelKey);
         updated.setStatus(existing.getStatus());
         updated.setCreatedAt(existing.getCreatedAt());
         updated.setUpdatedAt(LocalDateTime.now());
@@ -178,7 +184,9 @@ public class ModelProviderCaseImpl implements IModelProviderCase {
                 .displayName(request.displayName())
                 .provider(StringUtils.hasText(request.provider()) ? request.provider() : "openai-compatible")
                 .baseUrl(request.baseUrl())
-                .apiKeyCipher(StringUtils.hasText(request.apiKey()) ? apiKeyCipherPort.encrypt(request.apiKey()) : "")
+                .apiKeyCipher(StringUtils.hasText(request.apiKey())
+                        ? apiKeyCipherPort.encrypt(request.apiKey())
+                        : existing == null ? "" : existing.getApiKeyCipher())
                 .modelName(request.modelName())
                 .endpointType(request.endpointType())
                 .temperature(request.temperature() == null ? 0.2 : request.temperature())

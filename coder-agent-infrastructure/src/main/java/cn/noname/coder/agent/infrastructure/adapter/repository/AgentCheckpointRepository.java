@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentCheckpointRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentCheckpoint;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentCheckpointRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentCheckpoint;
 import cn.noname.coder.agent.infrastructure.dao.IAgentCheckpointDao;
 import cn.noname.coder.agent.infrastructure.dao.po.AgentCheckpointPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;

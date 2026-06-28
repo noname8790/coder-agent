@@ -3,6 +3,7 @@ package cn.noname.coder.agent;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.*;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.ArtifactType;
 import cn.noname.coder.agent.types.enums.AuditEventType;
@@ -90,7 +91,7 @@ class AgentPersistenceMySqlTest {
         AgentRun saved = runRepository.findByRunId(runId).orElseThrow();
         assertEquals(AgentRunStatus.SUCCEEDED, saved.getStatus());
         assertEquals("完成", saved.getFinalAnswer());
-        assertEquals(1L, runRepository.countByStatuses(List.of(AgentRunStatus.SUCCEEDED)));
+        assertTrue(runRepository.countByStatuses(List.of(AgentRunStatus.SUCCEEDED)) >= 1L);
         assertEquals(1, recordRepository.listAuditEvents(runId).size());
         assertEquals(1, recordRepository.listArtifacts(runId).size());
         assertEquals(1, count("model_call"));

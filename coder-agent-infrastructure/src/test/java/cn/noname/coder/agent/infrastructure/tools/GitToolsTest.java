@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.tools;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

@@ -45,13 +45,13 @@ class AgentRuntimePropertiesBindingTest {
     void shouldUseContextDefaultsGivenNoExplicitBudgetConfiguration() {
         AgentRuntimeProperties properties = new AgentRuntimeProperties();
 
-        assertEquals(32000, properties.getContext().getMaxInputTokens());
-        assertEquals(6000, properties.getContext().getMemoryBudgetTokens());
-        assertEquals(6000, properties.getContext().getFileSummaryBudgetTokens());
-        assertEquals(8000, properties.getContext().getRawSnippetBudgetTokens());
-        assertEquals(4000, properties.getContext().getToolResultBudgetTokens());
-        assertEquals(4000, properties.getContext().getRecentMessageBudgetTokens());
-        assertEquals(4000, properties.getContext().getOutputReserveTokens());
+        assertEquals(106496, properties.getContext().getMaxInputTokens());
+        assertEquals(12288, properties.getContext().getMemoryBudgetTokens());
+        assertEquals(16384, properties.getContext().getFileSummaryBudgetTokens());
+        assertEquals(32768, properties.getContext().getRawSnippetBudgetTokens());
+        assertEquals(20480, properties.getContext().getToolResultBudgetTokens());
+        assertEquals(16384, properties.getContext().getRecentMessageBudgetTokens());
+        assertEquals(8192, properties.getContext().getOutputReserveTokens());
     }
 
     @Test

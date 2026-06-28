@@ -20,9 +20,13 @@ public class MemoryItemPO {
     private String contentHash;
     private LocalDateTime fileMtime;
     private String summaryVersion;
+    private String memoryType;
+    private String scope;
     private String title;
     private String summary;
     private String metadataJson;
+    private Double trustScore;
+    private String evidenceJson;
     private String freshnessStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

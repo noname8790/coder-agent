@@ -1,12 +1,12 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolDefinition;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGovernancePort;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDefinition;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGovernancePort;
 import cn.noname.coder.agent.infrastructure.tools.LocalTool;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.CallStatus;

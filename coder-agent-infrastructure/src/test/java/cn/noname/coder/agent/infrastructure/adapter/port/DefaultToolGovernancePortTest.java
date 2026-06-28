@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import org.junit.jupiter.api.Test;
 
@@ -33,30 +33,23 @@ class DefaultToolGovernancePortTest {
     }
 
     @Test
-    void shouldRejectDuplicateInvocationGivenNoPreviousResult() {
+    void shouldLeaveDuplicateSearchTextInvocationToExecutor() {
         DefaultToolGovernancePort port = new DefaultToolGovernancePort();
         ToolInvocation invocation = new ToolInvocation("1", "search_text", "{\"query\":\"Agent\"}");
 
         assertNull(port.validateBeforeExecution("run_1", "repo", invocation));
-        ToolResult result = port.validateBeforeExecution("run_1", "repo", invocation);
-
-        assertEquals(CallStatus.REJECTED, result.status());
-        assertEquals("DUPLICATE_TOOL_CALL", result.errorMessage());
+        assertNull(port.validateBeforeExecution("run_1", "repo", invocation));
     }
 
     @Test
-    void shouldReusePreviousResultGivenDuplicateInvocationAfterSuccessfulExecution() {
+    void shouldNotReusePreviousReadFileResultGivenDuplicateInvocationAfterSuccessfulExecution() {
         DefaultToolGovernancePort port = new DefaultToolGovernancePort();
         ToolInvocation invocation = new ToolInvocation("1", "read_file", "{\"path\":\"src/App.java\"}");
 
         assertNull(port.validateBeforeExecution("run_1", "repo", invocation));
         port.sanitizeAfterExecution("run_1", "repo", invocation,
                 new ToolResult(CallStatus.SUCCESS, "file content", "file content", 0, null));
-        ToolResult result = port.validateBeforeExecution("run_1", "repo", invocation);
-
-        assertEquals(CallStatus.SUCCESS, result.status());
-        assertTrue(result.summary().contains("复用上次工具结果"));
-        assertTrue(result.summary().contains("file content"));
+        assertNull(port.validateBeforeExecution("run_1", "repo", invocation));
     }
 
     @Test

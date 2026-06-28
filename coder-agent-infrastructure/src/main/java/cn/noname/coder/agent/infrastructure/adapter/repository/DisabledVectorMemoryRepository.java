@@ -1,9 +1,9 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryChunk;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchHit;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchRequest;
+import cn.noname.coder.agent.domain.memory.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryChunk;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchHit;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
@@ -38,5 +38,9 @@ public class DisabledVectorMemoryRepository implements IVectorMemoryPort {
     @Override
     public void deleteByRunIds(String workspaceKey, Collection<String> runIds) {
         log.debug("pgvector 未启用，跳过记忆向量清理 workspaceKey={} runIds={}", workspaceKey, runIds);
+    }
+    @Override
+    public void deleteByMemoryIds(String workspaceKey, Collection<String> memoryIds) {
+        log.debug("pgvector disabled, skip memory vector cleanup workspaceKey={} memoryIds={}", workspaceKey, memoryIds);
     }
 }

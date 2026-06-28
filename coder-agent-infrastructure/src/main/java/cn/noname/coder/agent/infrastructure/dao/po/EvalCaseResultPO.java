@@ -26,6 +26,12 @@ public class EvalCaseResultPO {
     private String failureCategory;
     private Double contextCompressionRatio;
     private Integer memoryHitCount;
+    private Double retainedAnchorRate;
+    private Double memoryRecallPrecision;
+    private Double memoryRecallAtK;
+    private Double staleBlockRate;
+    private Integer repeatedReadCount;
+    private Long tokenCost;
     private String resultPath;
     private LocalDateTime createdAt;
 }

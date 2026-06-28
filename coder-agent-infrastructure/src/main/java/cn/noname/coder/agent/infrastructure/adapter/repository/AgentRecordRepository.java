@@ -2,6 +2,7 @@ package cn.noname.coder.agent.infrastructure.adapter.repository;
 
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.*;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
 import cn.noname.coder.agent.infrastructure.dao.*;
 import cn.noname.coder.agent.infrastructure.dao.po.*;
 import cn.noname.coder.agent.types.enums.ArtifactType;

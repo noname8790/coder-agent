@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
 import cn.noname.coder.agent.infrastructure.dao.IContextSnapshotDao;
 import cn.noname.coder.agent.infrastructure.dao.po.ContextSnapshotPO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -34,6 +34,7 @@ public class ContextSnapshotRepository implements IContextSnapshotRepository {
         po.setSelectedFileSummaryCount(snapshot.getSelectedFileSummaryCount());
         po.setSelectedRawSnippetCount(snapshot.getSelectedRawSnippetCount());
         po.setSnapshotPath(snapshot.getSnapshotPath());
+        po.setSectionDetailJson(snapshot.getSectionDetailJson());
         po.setCreatedAt(snapshot.getCreatedAt());
         dao.insert(po);
     }
@@ -74,6 +75,7 @@ public class ContextSnapshotRepository implements IContextSnapshotRepository {
                 .selectedFileSummaryCount(po.getSelectedFileSummaryCount())
                 .selectedRawSnippetCount(po.getSelectedRawSnippetCount())
                 .snapshotPath(po.getSnapshotPath())
+                .sectionDetailJson(po.getSectionDetailJson())
                 .createdAt(po.getCreatedAt())
                 .build();
     }

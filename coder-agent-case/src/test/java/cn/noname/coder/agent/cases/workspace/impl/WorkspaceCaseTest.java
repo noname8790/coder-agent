@@ -1,18 +1,18 @@
 package cn.noname.coder.agent.cases.workspace.impl;
 
 import cn.noname.coder.agent.api.dto.CreateWorkspaceRequestDTO;
-import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.memory.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IMemoryRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentConversation;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.memory.adapter.repository.IMemoryRepository;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IWorkspaceRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentConversation;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceStatus;
+import cn.noname.coder.agent.domain.workspace.model.entity.Workspace;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceStatus;
 import cn.noname.coder.agent.types.exception.AppException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

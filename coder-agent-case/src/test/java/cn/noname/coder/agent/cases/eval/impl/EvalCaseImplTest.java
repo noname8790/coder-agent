@@ -6,13 +6,13 @@ import cn.noname.coder.agent.api.dto.EvalBenchmarkRequestDTO;
 import cn.noname.coder.agent.api.dto.StartEvalRunRequestDTO;
 import cn.noname.coder.agent.cases.agent.ICreateAgentRunCase;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IEvalRepository;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.evaluation.adapter.repository.IEvalRepository;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
-import cn.noname.coder.agent.domain.agent.model.entity.ContextSnapshot;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalBenchmark;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalCaseResult;
-import cn.noname.coder.agent.domain.agent.model.entity.EvalRun;
+import cn.noname.coder.agent.domain.context.model.entity.ContextSnapshot;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalBenchmark;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalCaseResult;
+import cn.noname.coder.agent.domain.evaluation.model.entity.EvalRun;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import org.junit.jupiter.api.Test;
@@ -55,8 +55,11 @@ class EvalCaseImplTest {
             runRepository.save(run);
             snapshotRepository.snapshots.put(runId, List.of(ContextSnapshot.builder()
                     .runId(runId)
+                    .rawEstimatedTokens(1000)
+                    .finalEstimatedTokens(780)
                     .compressionRatio(0.22)
                     .memoryHitCount(2)
+                    .staleMemoryCount(1)
                     .build()));
             return new CreateAgentRunResponseDTO(runId, "SUCCEEDED", LocalDateTime.now());
         };
@@ -73,6 +76,12 @@ class EvalCaseImplTest {
         assertTrue(response.cases().stream().allMatch(result -> Boolean.TRUE.equals(result.passed())));
         assertTrue(response.cases().stream().allMatch(result -> result.modelCalls() == 2 && result.toolCalls() == 3));
         assertTrue(response.cases().stream().allMatch(result -> result.contextCompressionRatio() == 0.22 && result.memoryHitCount() == 2));
+        assertTrue(response.reportPath().endsWith("/report.json"));
+        assertTrue(response.cases().stream().allMatch(result -> result.retainedAnchorRate() == 1.0));
+        assertTrue(response.cases().stream().allMatch(result -> result.memoryRecallPrecision() == 1.0));
+        assertTrue(response.cases().stream().allMatch(result -> result.memoryRecallAtK() == 1.0));
+        assertTrue(response.cases().stream().allMatch(result -> result.staleBlockRate() == 1.0));
+        assertTrue(response.cases().stream().allMatch(result -> result.tokenCost() == 1000L));
     }
 
     static class InMemoryEvalRepository implements IEvalRepository {

@@ -1,8 +1,10 @@
 package cn.noname.coder.agent.infrastructure.adapter.port;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGovernancePort;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.tool.adapter.ToolGovernancePolicy;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGovernancePort;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolDescriptor;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
 import cn.noname.coder.agent.infrastructure.tools.ToolJson;
 import cn.noname.coder.agent.types.enums.CallStatus;
 import lombok.extern.slf4j.Slf4j;
@@ -11,15 +13,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
-public class DefaultToolGovernancePort implements IToolGovernancePort {
+public class DefaultToolGovernancePort implements IToolGovernancePort, ToolGovernancePolicy {
 
     private static final Set<String> PATH_TOOLS = Set.of("read_file", "write_file", "apply_patch", "overwrite_file", "delete_file");
-    private final Map<String, Boolean> seenInvocations = new ConcurrentHashMap<>();
-    private final Map<String, ToolResult> previousResults = new ConcurrentHashMap<>();
 
     @Override
     public ToolResult validateBeforeExecution(String runId, String workspaceKey, ToolInvocation invocation) {
@@ -35,23 +34,15 @@ public class DefaultToolGovernancePort implements IToolGovernancePort {
         if (pathRejected != null) {
             return pathRejected;
         }
-        String dedupeKey = invocationKey(runId, invocation);
-        if (shouldDedupe(invocation.name()) && seenInvocations.putIfAbsent(dedupeKey, Boolean.TRUE) != null) {
-            ToolResult previous = previousResults.get(dedupeKey);
-            if (previous != null) {
-                log.info("重复工具调用复用上次结果 runId={} tool={}", runId, invocation.name());
-        return new ToolResult(previous.status(),
-                        "复用上次工具结果：" + previous.summary() + "\n提示：这是同一参数的重复工具调用结果，请直接基于该结果继续推进，不要再次请求相同工具调用。",
-                        previous.fullOutput(),
-                        previous.exitCode(),
-                        previous.errorMessage(),
-                        previous.changedFiles(),
-                        previous.testReport());
-            }
-            log.warn("重复工具调用被拦截 runId={} tool={}", runId, invocation.name());
-            return rejected("重复工具调用已拦截：" + invocation.name(), "DUPLICATE_TOOL_CALL");
-        }
         return null;
+    }
+
+    @Override
+    public ToolResult validateBeforeExecution(String runId,
+                                              String workspaceKey,
+                                              ToolDescriptor descriptor,
+                                              ToolInvocation invocation) {
+        return validateBeforeExecution(runId, workspaceKey, invocation);
     }
 
     @Override
@@ -59,12 +50,17 @@ public class DefaultToolGovernancePort implements IToolGovernancePort {
         if (result == null) {
             return null;
         }
-        ToolResult sanitized = new ToolResult(result.status(), redact(result.summary()), redact(result.fullOutput()),
+        return new ToolResult(result.status(), redact(result.summary()), redact(result.fullOutput()),
                 result.exitCode(), redact(result.errorMessage()), result.changedFiles(), result.testReport());
-        if (invocation != null && StringUtils.hasText(invocation.name()) && shouldDedupe(invocation.name())) {
-            previousResults.put(invocationKey(runId, invocation), sanitized);
-        }
-        return sanitized;
+    }
+
+    @Override
+    public ToolResult sanitizeAfterExecution(String runId,
+                                             String workspaceKey,
+                                             ToolDescriptor descriptor,
+                                             ToolInvocation invocation,
+                                             ToolResult result) {
+        return sanitizeAfterExecution(runId, workspaceKey, invocation, result);
     }
 
     private ToolResult validateSchema(String toolName, Map<String, Object> args) {
@@ -94,22 +90,6 @@ public class DefaultToolGovernancePort implements IToolGovernancePort {
             return rejected("敏感或越界路径被拒绝：" + path, "SENSITIVE_PATH_REJECTED");
         }
         return null;
-    }
-
-    private boolean shouldDedupe(String toolName) {
-        return Set.of("read_file", "search_text", "run_shell", "write_file", "apply_patch", "overwrite_file", "delete_file")
-                .contains(toolName);
-    }
-
-    private String invocationKey(String runId, ToolInvocation invocation) {
-        return runId + ":" + invocation.name() + ":" + normalizeArguments(redact(invocation.argumentsJson()));
-    }
-
-    private String normalizeArguments(String argumentsJson) {
-        if (argumentsJson == null) {
-            return "";
-        }
-        return argumentsJson.replace("\\\\", "/").replace("\\", "/").trim();
     }
 
     private ToolResult rejected(String message, String code) {

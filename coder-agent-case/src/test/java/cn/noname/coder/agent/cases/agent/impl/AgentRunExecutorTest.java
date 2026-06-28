@@ -5,32 +5,34 @@ import cn.noname.coder.agent.cases.agent.RunChangeService;
 import cn.noname.coder.agent.cases.memory.MemoryService;
 import cn.noname.coder.agent.domain.agent.adapter.port.IArtifactPort;
 import cn.noname.coder.agent.domain.agent.adapter.port.IAgentRunEventPublisher;
-import cn.noname.coder.agent.domain.agent.adapter.port.IContextEngine;
-import cn.noname.coder.agent.domain.agent.adapter.port.IModelConfigPort;
-import cn.noname.coder.agent.domain.agent.adapter.port.IStreamingModelGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IToolGateway;
-import cn.noname.coder.agent.domain.agent.adapter.port.IWorkspacePort;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentConversationRepository;
+import cn.noname.coder.agent.domain.context.adapter.port.IContextEngine;
+import cn.noname.coder.agent.domain.model.adapter.port.IModelConfigPort;
+import cn.noname.coder.agent.domain.model.adapter.port.IStreamingModelGateway;
+import cn.noname.coder.agent.domain.tool.adapter.port.IToolGateway;
+import cn.noname.coder.agent.domain.workspace.adapter.port.IWorkspacePort;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IAgentConversationRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRecordRepository;
 import cn.noname.coder.agent.domain.agent.adapter.repository.IAgentRunRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IContextSnapshotRepository;
-import cn.noname.coder.agent.domain.agent.adapter.repository.IToolApprovalRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.AgentMessage;
+import cn.noname.coder.agent.domain.context.adapter.repository.IContextSnapshotRepository;
+import cn.noname.coder.agent.domain.tool.adapter.repository.IToolApprovalRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.AgentMessage;
 import cn.noname.coder.agent.domain.agent.model.entity.AgentRun;
 import cn.noname.coder.agent.domain.agent.model.entity.RunArtifact;
-import cn.noname.coder.agent.domain.agent.model.entity.ToolApprovalRequest;
-import cn.noname.coder.agent.domain.agent.model.entity.ToolCall;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextAssemblyResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextBudget;
-import cn.noname.coder.agent.domain.agent.model.valobj.ContextCandidate;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelBackendConfig;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelRequest;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEvent;
-import cn.noname.coder.agent.domain.agent.model.valobj.ModelStreamEventType;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolInvocation;
-import cn.noname.coder.agent.domain.agent.model.valobj.ToolResult;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceDescriptor;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolApprovalRequest;
+import cn.noname.coder.agent.domain.tool.model.entity.ToolCall;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextAssemblyResult;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextBudget;
+import cn.noname.coder.agent.domain.context.model.valobj.ContextCandidate;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelBackendConfig;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelRequest;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelStreamEvent;
+import cn.noname.coder.agent.domain.model.model.valobj.ModelStreamEventType;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolInvocation;
+import cn.noname.coder.agent.domain.tool.model.valobj.ToolResult;
+import cn.noname.coder.agent.domain.tool.model.valobj.TestCommandReport;
+import cn.noname.coder.agent.domain.workspace.model.valobj.ChangedFile;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceDescriptor;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
 import cn.noname.coder.agent.types.enums.ArtifactType;
@@ -46,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -354,6 +357,56 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldKeepApprovalArgumentsValidJsonGivenGitCommandContainsEscapedQuotes() {
+        AgentRun run = newRun("run_shell_git_commit_approval");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        String argumentsJson = "{\"command\":\"git commit -m \\\"save changes\\\"\"}";
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "run_shell",
+                    argumentsJson, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<ToolApprovalRequest> approvalCaptor = ArgumentCaptor.forClass(ToolApprovalRequest.class);
+        verify(harness.toolApprovalRepository).save(approvalCaptor.capture());
+        assertEquals(argumentsJson, approvalCaptor.getValue().getArgumentsJson());
+    }
+
+    @Test
+    void shouldKeepApprovalArgumentsValidJsonGivenGitCommitCommandContainsNewlines() {
+        AgentRun run = newRun("run_shell_git_commit_multiline_approval");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        String argumentsJson = "{\"command\":\"git commit -m \\\"feat: add calculator\\n\\ninclude tests\\\"\"}";
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_1", "run_shell",
+                    argumentsJson, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "run_shell", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<ToolApprovalRequest> approvalCaptor = ArgumentCaptor.forClass(ToolApprovalRequest.class);
+        verify(harness.toolApprovalRepository).save(approvalCaptor.capture());
+        String savedArguments = approvalCaptor.getValue().getArgumentsJson();
+        assertFalse(savedArguments.contains("\n"));
+        assertEquals("{\"command\":\"git commit -m \\\"feat: add calculator\\n\\ninclude tests\\\"\"}", savedArguments);
+    }
+
+    @Test
     void shouldExecuteApprovedToolBeforeNextModelCallGivenRunResumedFromApproval() {
         AgentRun run = newRun("run_approved_tool_resume");
         run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
@@ -389,6 +442,153 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldNotRequestApprovalAgainGivenApprovedDeleteAlreadyExecuted() {
+        AgentRun run = newRun("run_approved_delete_repeat");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        ToolApprovalRequest approval = ToolApprovalRequest.builder()
+                .approvalId("apv_delete")
+                .runId(run.getRunId())
+                .workspaceKey(run.getWorkspaceKey())
+                .toolName("delete_file")
+                .argumentsJson("{\"path\":\"src/main/java/cn/noname/demo/Obsolete.java\"}")
+                .status("APPROVED")
+                .build();
+        when(harness.toolApprovalRepository.listApprovedPendingExecution(run.getRunId()))
+                .thenReturn(List.of(approval), List.of());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "已删除文件：src/main/java/cn/noname/demo/Obsolete.java", "", 0, null));
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_repeat", "delete_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_repeat", "delete_file",
+                        "{\"path\": \"src/main/java/cn/noname/demo/Obsolete.java\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_repeat", "delete_file", null, null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "deleted", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        verify(harness.toolGateway, org.mockito.Mockito.times(1)).execute(any(AgentRun.class), any(), any());
+        verify(harness.toolApprovalRepository, never()).save(any());
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+        ArgumentCaptor<ToolCall> toolCallCaptor = ArgumentCaptor.forClass(ToolCall.class);
+        verify(harness.recordRepository, org.mockito.Mockito.atLeastOnce()).saveToolCall(toolCallCaptor.capture());
+        assertTrue(toolCallCaptor.getAllValues().stream().anyMatch(call ->
+                "delete_file".equals(call.getToolName())
+                        && call.getStatus() == CallStatus.SUCCESS));
+    }
+
+    @Test
+    void shouldReturnRejectedApprovalAsToolResultGivenUserRejectedApproval() {
+        AgentRun run = newRun("run_rejected_approval_feedback");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        ToolApprovalRequest rejected = ToolApprovalRequest.builder()
+                .approvalId("apv_rejected")
+                .runId(run.getRunId())
+                .workspaceKey(run.getWorkspaceKey())
+                .toolName("delete_file")
+                .argumentsJson("{\"path\":\"src/test/java/cn/noname/demo/ObsoleteTest.java\"}")
+                .decisionReason("用户拒绝删除")
+                .status("REJECTED")
+                .build();
+        when(harness.toolApprovalRepository.listRejectedPendingReturn(run.getRunId()))
+                .thenReturn(List.of(rejected), List.of());
+        doAnswer(invocation -> {
+            var request = invocation.<ModelRequest>getArgument(0);
+            assertTrue(request.protocolMessages().stream()
+                    .anyMatch(message -> "tool".equals(message.role())
+                            && "delete_file".equals(message.toolName())
+                            && message.content().contains("TOOL_APPROVAL_REJECTED")));
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "已收到拒绝反馈", null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<ToolCall> toolCallCaptor = ArgumentCaptor.forClass(ToolCall.class);
+        verify(harness.recordRepository, org.mockito.Mockito.atLeastOnce()).saveToolCall(toolCallCaptor.capture());
+        assertTrue(toolCallCaptor.getAllValues().stream().anyMatch(call ->
+                "delete_file".equals(call.getToolName())
+                        && call.getStatus() == CallStatus.REJECTED));
+        verify(harness.toolApprovalRepository).markReturned("apv_rejected");
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+    }
+
+    @Test
+    void shouldNotExecuteAgainGivenApprovalAlreadyExecutedInPreviousResume() {
+        AgentRun run = newRun("run_executed_approval_repeat");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        when(harness.toolApprovalRepository.findApproved(eq(run.getRunId()), eq("delete_file"),
+                eq("{\"path\":\"E:/repo/src/main/java/cn/noname/demo/RemoveMe.java\"}")))
+                .thenReturn(Optional.of(ToolApprovalRequest.builder()
+                        .approvalId("apv_done")
+                        .runId(run.getRunId())
+                        .toolName("delete_file")
+                        .argumentsJson("{\"path\":\"E:/repo/src/main/java/cn/noname/demo/RemoveMe.java\"}")
+                        .status("APPROVED_EXECUTED")
+                        .build()));
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_repeat", "delete_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_repeat", "delete_file",
+                        "{\"path\": \"E:/repo/src/main/java/cn/noname/demo/RemoveMe.java\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_repeat", "delete_file", null, null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "已经删除过", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        verify(harness.toolGateway, never()).execute(any(AgentRun.class), any(), any());
+        verify(harness.toolApprovalRepository, never()).save(any());
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+    }
+
+    @Test
+    void shouldNotOverflowStackGivenLongToolArguments() {
+        AgentRun run = newRun("run_long_tool_arguments");
+        run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
+        TestHarness harness = new TestHarness(run);
+        String longPath = "src/main/java/cn/noname/demo/" + "A".repeat(200_000) + ".java";
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_long", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_long", "delete_file",
+                    "{\"path\":\"" + longPath + "\"}", null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_long", "delete_file", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+
+        harness.executor.execute(run.getRunId());
+
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, harness.runRef.get().getStatus());
+        verify(harness.toolApprovalRepository).save(any());
+    }
+
+    @Test
     void shouldFailGivenSameToolArgumentsRepeatedAfterSuccessfulObservation() {
         AgentRun run = newRun("run_repeated_tool_guard");
         run.setMaxModelCalls(5);
@@ -418,6 +618,95 @@ class AgentRunExecutorTest {
     }
 
     @Test
+    void shouldAllowSameTestCommandAfterWorkspaceMutation() {
+        AgentRun run = newRun("run_retest_after_edit");
+        run.setPermissionLevel(AgentPermissionLevel.FULL_ACCESS);
+        run.setMaxModelCalls(5);
+        run.setMaxToolCalls(5);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1 || call == 2 || call == 4) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "run_shell", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "run_shell",
+                        "{\"command\":\"mvn -q -Dtest=CalculatorTest test\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_" + call, "run_shell", null, null));
+            } else if (call == 3) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_3", "apply_patch", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_3", "apply_patch",
+                        "{\"path\":\"src/main/java/cn/noname/demo/Calculator.java\",\"search\":\"return value * value;\",\"replace\":\"return value + value;\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_3", "apply_patch", null, null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "fixed and retested", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "test failed", "", 1, null, List.of(), new TestCommandReport(
+                        "mvn -q -Dtest=CalculatorTest test", 1, 100L, "FAILED", "assertion failed")))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "test failed again", "", 1, null, List.of(), new TestCommandReport(
+                        "mvn -q -Dtest=CalculatorTest test", 1, 100L, "FAILED", "assertion failed")))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "patched Calculator.java", "", 0, null,
+                        List.of(new ChangedFile("src/main/java/cn/noname/demo/Calculator.java", "MODIFY", "before", "after", null,
+                                "return value * value;", "return value + value;")), null))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "test passed", "", 0, null, List.of(), new TestCommandReport(
+                        "mvn -q -Dtest=CalculatorTest test", 0, 100L, "PASSED", "all tests passed")));
+
+        harness.executor.execute(run.getRunId());
+
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+        assertEquals(5, calls.get());
+        verify(harness.toolGateway, org.mockito.Mockito.times(4)).execute(any(AgentRun.class), any(), any());
+    }
+
+    @Test
+    void shouldAllowReadFileAgainAfterOverwriteFileMutation() {
+        AgentRun run = newRun("run_read_after_overwrite");
+        run.setPermissionLevel(AgentPermissionLevel.FULL_ACCESS);
+        run.setMaxModelCalls(5);
+        run.setMaxToolCalls(5);
+        TestHarness harness = new TestHarness(run);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            int call = calls.incrementAndGet();
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            if (call == 1 || call == 2 || call == 4) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_" + call, "read_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_" + call, "read_file",
+                        "{\"path\":\"src/test/java/cn/noname/demo/PowerCalculatorTest.java\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_" + call, "read_file", null, null));
+            } else if (call == 3) {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_3", "overwrite_file", null, null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_ARGUMENTS_DELTA, null, "tool_3", "overwrite_file",
+                        "{\"path\":\"src/test/java/cn/noname/demo/PowerCalculatorTest.java\",\"content\":\"package cn.noname.demo;\\nclass PowerCalculatorTest {}\"}", null));
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_3", "overwrite_file", null, null));
+            } else {
+                consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_DELTA, "overwrite verified", null, null, null, null));
+            }
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "old content", "old content", 0, null))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "old content", "old content", 0, null))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "overwritten", "new content", 0, null,
+                        List.of(new ChangedFile("src/test/java/cn/noname/demo/PowerCalculatorTest.java", "OVERWRITE",
+                                "before", "after", null, "old content", "new content")), null))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "new content", "new content", 0, null));
+
+        harness.executor.execute(run.getRunId());
+
+        assertEquals(AgentRunStatus.SUCCEEDED, harness.runRef.get().getStatus());
+        assertEquals(5, calls.get());
+        verify(harness.toolGateway, org.mockito.Mockito.times(4)).execute(any(AgentRun.class), any(), any());
+    }
+
+    @Test
     void shouldFailImmediatelyGivenShellCommandTimeout() {
         AgentRun run = newRun("run_shell_timeout");
         run.setPermissionLevel(AgentPermissionLevel.DEFAULT);
@@ -442,6 +731,30 @@ class AgentRunExecutorTest {
         assertEquals(AgentRunStatus.FAILED, harness.runRef.get().getStatus());
         assertTrue(harness.runRef.get().getFailureReason().contains("Shell command timeout"));
         assertEquals(1, calls.get());
+    }
+
+    @Test
+    void shouldNotRecordRunChangeGivenReadOnlyGitDiffReportsWorkspaceChanges() {
+        AgentRun run = newRun("run_readonly_git_diff");
+        run.setPermissionLevel(AgentPermissionLevel.READ_ONLY);
+        TestHarness harness = new TestHarness(run);
+        doAnswer(invocation -> {
+            var consumer = invocation.<java.util.function.Consumer<ModelStreamEvent>>getArgument(1);
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.ASSISTANT_MESSAGE_STARTED, null, null, null, null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_STARTED, null, "tool_1", "git_diff", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.TOOL_CALL_COMPLETED, null, "tool_1", "git_diff", null, null));
+            consumer.accept(new ModelStreamEvent(ModelStreamEventType.MODEL_COMPLETED, null, null, null, null, null));
+            return null;
+        }).when(harness.streamingModelGateway).stream(any(), any());
+        when(harness.toolGateway.execute(any(AgentRun.class), any(), any()))
+                .thenReturn(new ToolResult(CallStatus.SUCCESS, "workspace has diff", "",
+                        0, null, List.of(new ChangedFile("Calculator.java", "MODIFY", "a", "b", null, "old", "new")), null));
+
+        harness.executor.execute(run.getRunId());
+
+        ArgumentCaptor<List<ChangedFile>> changesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(harness.runChangeService).record(any(), any(), changesCaptor.capture());
+        assertTrue(changesCaptor.getValue().isEmpty());
     }
 
     @Test
@@ -508,6 +821,7 @@ class AgentRunExecutorTest {
         private final IToolApprovalRepository toolApprovalRepository = mock(IToolApprovalRepository.class);
         private final IAgentRecordRepository recordRepository = mock(IAgentRecordRepository.class);
         private final IContextEngine contextEngine = mock(IContextEngine.class);
+        private final RunChangeService runChangeService = mock(RunChangeService.class);
         private final AgentRunDraftService draftService;
         private final AgentRunExecutor executor;
 
@@ -521,7 +835,6 @@ class AgentRunExecutorTest {
             IAgentRunEventPublisher eventPublisher = mock(IAgentRunEventPublisher.class);
             ContextBudgetResolver budgetResolver = mock(ContextBudgetResolver.class);
             MemoryService memoryService = mock(MemoryService.class);
-            RunChangeService runChangeService = mock(RunChangeService.class);
             this.draftService = new AgentRunDraftService(runRepository);
 
             when(runRepository.findByRunId(run.getRunId())).thenAnswer(ignored -> Optional.of(runRef.get()));
@@ -558,3 +871,4 @@ class AgentRunExecutorTest {
         }
     }
 }
+

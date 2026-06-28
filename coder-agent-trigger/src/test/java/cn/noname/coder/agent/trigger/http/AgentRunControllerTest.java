@@ -103,7 +103,7 @@ class AgentRunControllerTest {
                 "run_1", "coder-agent", null, "分析仓库", "model", "READ_ONLY",
                 "SUCCEEDED", "完成", null, null, null,
                 false, 0, "NOT_RUN",
-                1, 1, 0,
+                1, 50, 1, 50, 0, 100,
                 null, null, null, null, null, null, null, null,
                 100L, LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), List.of(), null));
 

@@ -1,9 +1,9 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.IVectorMemoryPort;
-import cn.noname.coder.agent.domain.agent.model.entity.MemoryChunk;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchHit;
-import cn.noname.coder.agent.domain.agent.model.valobj.MemorySearchRequest;
+import cn.noname.coder.agent.domain.memory.adapter.port.IVectorMemoryPort;
+import cn.noname.coder.agent.domain.memory.model.entity.MemoryChunk;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchHit;
+import cn.noname.coder.agent.domain.memory.model.valobj.MemorySearchRequest;
 import cn.noname.coder.agent.types.config.AgentRuntimeProperties;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,8 +32,8 @@ public class PgVectorMemoryRepository implements IVectorMemoryPort {
         jdbcTemplate.update("""
                         INSERT INTO %s
                         (chunk_id, workspace_key, memory_id, source_type, source_id, file_path,
-                         content_hash, freshness_status, content, metadata, embedding)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector)
+                         content_hash, trust_score, freshness_status, content, metadata, embedding)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector)
                         """.formatted(tableName()),
                 chunk.getChunkId(),
                 chunk.getWorkspaceKey(),
@@ -42,6 +42,7 @@ public class PgVectorMemoryRepository implements IVectorMemoryPort {
                 chunk.getSourceId(),
                 chunk.getFilePath(),
                 chunk.getContentHash(),
+                chunk.getTrustScore() == null ? 0.8 : chunk.getTrustScore(),
                 chunk.getFreshnessStatus(),
                 chunk.getContent(),
                 chunk.getMetadataJson(),
@@ -81,6 +82,20 @@ public class PgVectorMemoryRepository implements IVectorMemoryPort {
     public void markStale(String workspaceKey, String memoryId) {
         jdbcTemplate.update("UPDATE " + tableName() + " SET freshness_status = 'STALE' WHERE workspace_key = ? AND memory_id = ?",
                 workspaceKey, memoryId);
+    }
+
+    @Override
+    public void deleteByMemoryIds(String workspaceKey, Collection<String> memoryIds) {
+        if (workspaceKey == null || workspaceKey.isBlank() || memoryIds == null || memoryIds.isEmpty()) {
+            return;
+        }
+        for (String memoryId : memoryIds) {
+            if (memoryId == null || memoryId.isBlank()) {
+                continue;
+            }
+            jdbcTemplate.update("DELETE FROM " + tableName() + " WHERE workspace_key = ? AND memory_id = ?",
+                    workspaceKey, memoryId);
+        }
     }
 
     @Override

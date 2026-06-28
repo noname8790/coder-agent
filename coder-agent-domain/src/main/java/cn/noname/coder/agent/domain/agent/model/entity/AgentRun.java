@@ -1,7 +1,7 @@
 package cn.noname.coder.agent.domain.agent.model.entity;
 
 import cn.noname.coder.agent.types.enums.AgentRunStatus;
-import cn.noname.coder.agent.domain.agent.model.valobj.AgentPermissionLevel;
+import cn.noname.coder.agent.domain.tool.model.valobj.AgentPermissionLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

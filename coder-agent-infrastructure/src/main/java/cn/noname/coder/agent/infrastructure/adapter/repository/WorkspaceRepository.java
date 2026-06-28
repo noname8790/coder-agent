@@ -1,8 +1,8 @@
 package cn.noname.coder.agent.infrastructure.adapter.repository;
 
-import cn.noname.coder.agent.domain.agent.adapter.repository.IWorkspaceRepository;
-import cn.noname.coder.agent.domain.agent.model.entity.Workspace;
-import cn.noname.coder.agent.domain.agent.model.valobj.WorkspaceStatus;
+import cn.noname.coder.agent.domain.workspace.adapter.repository.IWorkspaceRepository;
+import cn.noname.coder.agent.domain.workspace.model.entity.Workspace;
+import cn.noname.coder.agent.domain.workspace.model.valobj.WorkspaceStatus;
 import cn.noname.coder.agent.infrastructure.dao.IWorkspaceDao;
 import cn.noname.coder.agent.infrastructure.dao.po.WorkspacePO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;

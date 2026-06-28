@@ -1,6 +1,6 @@
 package cn.noname.coder.agent.cases.context;
 
-import cn.noname.coder.agent.domain.agent.adapter.port.ITokenEstimator;
+import cn.noname.coder.agent.domain.context.adapter.port.ITokenEstimator;
 import org.springframework.stereotype.Component;
 
 /**
